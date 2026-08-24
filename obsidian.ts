@@ -262,6 +262,13 @@ export class Vault {
     this.files.set(file.path, content);
   }
 
+  public getMarkdownFiles(): TFile[] {
+    return [...this.files.keys()]
+      .filter((path) => path.endsWith('.md'))
+      .sort()
+      .map((path) => new TFile(path, 'md'));
+  }
+
   public getFileByPath(path: string): TFile | null {
     return this.files.has(path) ? new TFile(path, path.endsWith('.md') ? 'md' : path.split('.').pop() ?? '') : null;
   }
@@ -335,7 +342,19 @@ export class Workspace {
 }
 
 export class MetadataCache {
+  private readonly emitter = new EventEmitter();
+
   constructor(private readonly vault: Vault) {}
+
+  public on(eventName: 'resolved', callback: () => void): () => void;
+  public on(eventName: 'changed', callback: (...values: unknown[]) => void): () => void;
+  public on(eventName: string, callback: (...values: any[]) => void): () => void {
+    return this.emitter.on(eventName, callback);
+  }
+
+  public emit(eventName: 'resolved' | 'changed', ...values: unknown[]): void {
+    this.emitter.emit(eventName, ...values);
+  }
 
   public getFileCache(file: TFile): { frontmatter?: Record<string, string> } | null {
     const content = this.vault.getFileContent(file.path);

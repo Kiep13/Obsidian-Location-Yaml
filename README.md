@@ -6,9 +6,10 @@ Capture the location where each new note is created.
 
 - Shows a location picker when a new markdown note is created
 - Offers a default location, pinned locations, and top-5 previously used locations
-- Stores new locations in `data.json`
+- Synchronizes locations and usage counts from Markdown frontmatter into `data.json`
 - Writes the selected location into note frontmatter as `location`
 - Reuses existing locations instead of duplicating them
+- Keeps differently written location labels separate without rewriting existing notes
 
 ## Installation
 

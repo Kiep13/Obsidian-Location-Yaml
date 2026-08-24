@@ -59,6 +59,77 @@ describe('LocationStore', () => {
     expect(locationLabels).toEqual(['Cafe', 'Home', 'Office']);
   });
 
+  it('does not inject default locations into loaded user data', async () => {
+    adapter.data = {
+      schemaVersion: 1,
+      settings: {
+        defaultLocationId: 'location-cafe',
+        pinnedLocationIds: [],
+        showPopupOnCreate: true,
+        autoApplyDefaultWhenOnlyOneChoice: true,
+      },
+      locations: [{ id: 'location-cafe', label: 'Cafe' }],
+      usage: [],
+    };
+    await store.load();
+
+    expect(store.getKnownLocations().map((location) => location.label)).toEqual(['Cafe']);
+    expect(store.getDefaultLocation()?.label).toBe('Cafe');
+  });
+
+  it('reconciles usage from current vault labels without merging distinct labels', async () => {
+    adapter.data = {
+      schemaVersion: 1,
+      settings: {
+        defaultLocationId: 'location-office',
+        pinnedLocationIds: [],
+        showPopupOnCreate: true,
+        autoApplyDefaultWhenOnlyOneChoice: true,
+      },
+      locations: [{ id: 'location-office', label: 'Office' }],
+      usage: [{
+        locationId: 'location-office',
+        count: 99,
+        firstSeenAt: '2026-01-01T00:00:00.000Z',
+        lastUsedAt: '2026-01-02T00:00:00.000Z',
+      }],
+    };
+    await store.load();
+
+    expect(store.reconcileVaultUsage([
+      { label: 'Office', count: 2 },
+      { label: 'City, Main Street 26', count: 3 },
+      { label: 'Main Street 26, City', count: 1 },
+    ])).toBe(true);
+    await store.save();
+
+    expect(adapter.data?.locations.map((location) => location.label)).toEqual([
+      'Office',
+      'City, Main Street 26',
+      'Main Street 26, City',
+    ]);
+    expect(adapter.data?.usage.map((entry) => [
+      store.getLocationById(entry.locationId)?.label,
+      entry.count,
+    ])).toEqual([
+      ['Office', 2],
+      ['City, Main Street 26', 3],
+      ['Main Street 26, City', 1],
+    ]);
+  });
+
+  it('removes usage for locations no longer present in the vault', async () => {
+    const officeLocation = store.resolveLocationInput('Office');
+    expect(officeLocation).not.toBeNull();
+
+    if (officeLocation) {
+      store.commitLocation(officeLocation);
+    }
+
+    expect(store.reconcileVaultUsage([])).toBe(true);
+    expect(store.getTopRecentLocations()).toEqual([]);
+  });
+
   it('returns recent locations ordered by usage count', async () => {
     const gymLocation = store.resolveLocationInput('Gym');
     const cafeLocation = store.resolveLocationInput('Cafe');

@@ -2,6 +2,7 @@ import { Notice, Plugin, type TFile } from 'obsidian';
 import { LocationStore } from './services/LocationStore';
 import { LocationService } from './services/LocationService';
 import { NewNoteCoordinator } from './services/NewNoteCoordinator';
+import { LocationVaultSyncService } from './services/LocationVaultSyncService';
 import { LocationSettingTab } from './ui/LocationSettingTab';
 import { promptForLocation } from './ui/LocationAssignModal';
 import type { LocationData, LocationDataAdapter } from './types';
@@ -10,6 +11,8 @@ export default class ObsidianLocationPlugin extends Plugin {
   private locationStore!: LocationStore;
   private locationService!: LocationService;
   private newNoteCoordinator!: NewNoteCoordinator;
+  private locationVaultSyncService!: LocationVaultSyncService;
+  private initialSyncStarted = false;
 
   public async onload(): Promise<void> {
     const dataAdapter: LocationDataAdapter = {
@@ -28,10 +31,35 @@ export default class ObsidianLocationPlugin extends Plugin {
       this.newNoteCoordinator,
       async (context) => await promptForLocation(this.app, context),
     );
+    this.locationVaultSyncService = new LocationVaultSyncService(this.app, this.locationStore);
+
+    this.registerEvent(
+      this.app.metadataCache.on('resolved', () => {
+        void this.initializeAfterMetadataResolved();
+      }),
+    );
 
     this.app.workspace.onLayoutReady(() => {
-      this.newNoteCoordinator.markReady();
+      void this.initializeAfterMetadataResolved();
     });
+
+    this.registerEvent(
+      this.app.metadataCache.on('changed', () => {
+        this.locationVaultSyncService.schedule();
+      }),
+    );
+
+    this.registerEvent(
+      this.app.vault.on('delete', () => {
+        this.locationVaultSyncService.schedule();
+      }),
+    );
+
+    this.registerEvent(
+      this.app.vault.on('rename', () => {
+        this.locationVaultSyncService.schedule();
+      }),
+    );
 
     this.registerEvent(
       this.app.vault.on('create', (file) => {
@@ -67,10 +95,30 @@ export default class ObsidianLocationPlugin extends Plugin {
     await this.locationService.handleVaultCreate(file);
   }
 
+  private async initializeAfterMetadataResolved(): Promise<void> {
+    if (this.initialSyncStarted) {
+      return;
+    }
+
+    const markdownFiles = this.app.vault.getMarkdownFiles();
+    if (markdownFiles.some((file) => this.app.metadataCache.getFileCache(file) === null)) {
+      return;
+    }
+
+    this.initialSyncStarted = true;
+    await this.locationVaultSyncService.syncNow().catch(() => undefined);
+    this.newNoteCoordinator.markReady();
+  }
+
   private async assignActiveLocation(): Promise<void> {
     const result = await this.locationService.assignActiveFileLocation();
     if (!result.success) {
       new Notice(result.message, 6000);
     }
+  }
+
+  public override onunload(): void {
+    this.locationVaultSyncService?.cancel();
+    super.onunload();
   }
 }

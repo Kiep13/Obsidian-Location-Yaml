@@ -6,10 +6,12 @@ import type {
   LocationPromptContext,
   LocationSettings,
   LocationUsage,
+  VaultLocationUsage,
 } from '../types';
 import {
   createLocationId,
   dedupeLocationsByKey,
+  normalizeLocationKey,
   normalizeLocationLabel,
 } from '../utils/locationNormalization';
 
@@ -32,16 +34,14 @@ function mergeLoadedData(loadedData: LocationData | null): LocationData {
     return cloneData(DEFAULT_DATA);
   }
 
-  const mergedLocations = dedupeLocationsByKey([
-    ...DEFAULT_DATA.locations,
-    ...(loadedData.locations ?? []),
-  ]);
+  const mergedLocations = dedupeLocationsByKey(loadedData.locations ?? []);
   const existingLocationIds = new Set(mergedLocations.map((location) => location.id));
 
   const mergedSettings: LocationSettings = {
     defaultLocationId:
       mergedLocations.find((location) => location.id === loadedData.settings?.defaultLocationId)?.id ??
-      DEFAULT_DATA.settings.defaultLocationId,
+      mergedLocations[0]?.id ??
+      '',
     pinnedLocationIds: (loadedData.settings?.pinnedLocationIds ?? []).filter((locationId) => existingLocationIds.has(locationId)).slice(0, 1),
     showPopupOnCreate: loadedData.settings?.showPopupOnCreate ?? DEFAULT_DATA.settings.showPopupOnCreate,
     autoApplyDefaultWhenOnlyOneChoice:
@@ -88,6 +88,67 @@ export class LocationStore {
 
   public async save(): Promise<void> {
     await this.dataAdapter.save(this.data);
+  }
+
+  public reconcileVaultUsage(entries: VaultLocationUsage[]): boolean {
+    const nowIso = this.clock().toISOString();
+    const currentUsageByKey = new Map<string, VaultLocationUsage>();
+
+    for (const entry of entries) {
+      const label = normalizeLocationLabel(entry.label);
+      const key = label.toLocaleLowerCase();
+      if (!key || currentUsageByKey.has(key)) {
+        continue;
+      }
+
+      currentUsageByKey.set(key, {
+        label,
+        count: Math.max(0, Math.trunc(entry.count)),
+      });
+    }
+
+    const locationsByKey = new Map(
+      this.data.locations.map((location) => [normalizeLocationKey(location.label), location]),
+    );
+    let locationsChanged = false;
+
+    for (const entry of currentUsageByKey.values()) {
+      if (locationsByKey.has(normalizeLocationKey(entry.label))) {
+        continue;
+      }
+
+      const location = {
+        id: this.createUniqueLocationId(entry.label),
+        label: entry.label,
+      };
+      this.data.locations.push(location);
+      locationsByKey.set(normalizeLocationKey(entry.label), location);
+      locationsChanged = true;
+    }
+
+    const previousUsageByLocationId = new Map(
+      this.data.usage.map((usageEntry) => [usageEntry.locationId, usageEntry]),
+    );
+    const nextUsage: LocationUsage[] = [];
+
+    for (const entry of currentUsageByKey.values()) {
+      const location = locationsByKey.get(normalizeLocationKey(entry.label));
+      if (!location || entry.count <= 0) {
+        continue;
+      }
+
+      const previousUsage = previousUsageByLocationId.get(location.id);
+      nextUsage.push({
+        locationId: location.id,
+        count: entry.count,
+        firstSeenAt: previousUsage?.firstSeenAt ?? nowIso,
+        lastUsedAt: previousUsage?.lastUsedAt ?? nowIso,
+      });
+    }
+
+    const usageChanged = JSON.stringify(this.data.usage) !== JSON.stringify(nextUsage);
+    this.data.usage = nextUsage;
+    return locationsChanged || usageChanged;
   }
 
   public getSettings(): LocationSettings {
@@ -233,5 +294,18 @@ export class LocationStore {
 
   public shouldAutoApplyDefault(): boolean {
     return this.data.settings.autoApplyDefaultWhenOnlyOneChoice;
+  }
+
+  private createUniqueLocationId(label: string): string {
+    const baseId = createLocationId(label);
+    let candidateId = baseId;
+    let suffix = 2;
+
+    while (this.getLocationById(candidateId)) {
+      candidateId = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+
+    return candidateId;
   }
 }

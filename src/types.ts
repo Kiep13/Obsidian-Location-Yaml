@@ -10,6 +10,11 @@ export interface LocationUsage {
   lastUsedAt: string;
 }
 
+export interface VaultLocationUsage {
+  label: string;
+  count: number;
+}
+
 export interface LocationSettings {
   defaultLocationId: string;
   pinnedLocationIds: string[];
