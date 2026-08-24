@@ -20,7 +20,12 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src obsidian.ts test-setup.ts vitest.config.ts esbuild.config.mjs eslint.config.mjs --ext .ts,.mjs",
-    "format": "prettier --write README.md agents.md manifest.json package.json esbuild.config.mjs eslint.config.mjs tsconfig.json vitest.config.ts test-setup.ts obsidian.ts install.sh \"src/**/*.{ts,css}\""
+    "format": "prettier --write README.md agents.md manifest.json package.json esbuild.config.mjs eslint.config.mjs tsconfig.json vitest.config.ts test-setup.ts obsidian.ts install.sh version-bump.mjs release.mjs \"src/**/*.{ts,css}\"",
+    "preversion": "corepack pnpm typecheck && corepack pnpm test && corepack pnpm lint && corepack pnpm build",
+    "version": "node version-bump.mjs",
+    "release": "node release.mjs",
+    "release:patch": "corepack pnpm version patch && node release.mjs",
+    "release:minor": "corepack pnpm version minor && node release.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
