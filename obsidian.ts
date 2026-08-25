@@ -20,6 +20,10 @@ class MockElement {
     return this.createEl('div', options);
   }
 
+  public createSpan(options: { cls?: string; text?: string; attr?: Record<string, string> } = {}): MockElement {
+    return this.createEl('span', options);
+  }
+
   public createEl(
     tagName: string,
     options: { cls?: string; text?: string; title?: string; attr?: Record<string, string> } = {},
@@ -43,6 +47,13 @@ class MockElement {
     childElement.parentElement = this;
     this.children.push(childElement);
     return childElement;
+  }
+
+  public createSvg(
+    tagName: string,
+    options: { cls?: string; attr?: Record<string, string> } = {},
+  ): MockElement {
+    return this.createEl(tagName, options);
   }
 
   public appendChild(childElement: MockElement): MockElement {
@@ -385,7 +396,11 @@ export class App {
 }
 
 export class Notice {
-  constructor(public readonly message: string, public readonly timeout?: number) {}
+  public static readonly history: Notice[] = [];
+
+  constructor(public readonly message: string, public readonly timeout?: number) {
+    Notice.history.push(this);
+  }
 }
 
 class AbstractMockControl<Value> {
@@ -540,6 +555,7 @@ export class Plugin {
 
   private data: unknown = null;
   private readonly registeredEvents: Array<() => void> = [];
+  private readonly commands = new Map<string, { id: string; name: string; callback?: () => void | Promise<void> }>();
 
   public async loadData(): Promise<unknown> {
     return this.data;
@@ -549,8 +565,12 @@ export class Plugin {
     this.data = data;
   }
 
-  public addCommand(command: { id: string; name: string; callback?: () => void }): void {
-    void command;
+  public addCommand(command: { id: string; name: string; callback?: () => void | Promise<void> }): void {
+    this.commands.set(command.id, command);
+  }
+
+  public async executeCommand(commandId: string): Promise<void> {
+    await this.commands.get(commandId)?.callback?.();
   }
 
   public addRibbonIcon(icon: string, title: string, callback: () => void): MockElement {

@@ -15,6 +15,12 @@ export interface VaultLocationUsage {
   count: number;
 }
 
+export interface LocationUsageStatistic {
+  locationId: string;
+  label: string;
+  count: number;
+}
+
 export interface LocationSettings {
   defaultLocationId: string;
   pinnedLocationIds: string[];

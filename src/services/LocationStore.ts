@@ -6,6 +6,7 @@ import type {
   LocationPromptContext,
   LocationSettings,
   LocationUsage,
+  LocationUsageStatistic,
   VaultLocationUsage,
 } from '../types';
 import {
@@ -207,6 +208,24 @@ export class LocationStore {
     }
 
     return recentLocations;
+  }
+
+  public getUsageStatistics(): LocationUsageStatistic[] {
+    return this.data.usage
+      .map((usageEntry) => {
+        const location = this.getLocationById(usageEntry.locationId);
+        if (!location || usageEntry.count <= 0) {
+          return null;
+        }
+
+        return {
+          locationId: location.id,
+          label: location.label,
+          count: usageEntry.count,
+        };
+      })
+      .filter((entry): entry is LocationUsageStatistic => entry !== null)
+      .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
   }
 
   public getPromptContext(filePath: string): LocationPromptContext {

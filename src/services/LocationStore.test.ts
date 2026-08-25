@@ -147,6 +147,21 @@ describe('LocationStore', () => {
     expect(recentLocations.map((location) => location.label)).toEqual(['Gym', 'Cafe']);
   });
 
+  it('returns used locations for statistics by count and then label', () => {
+    expect(store.reconcileVaultUsage([
+      { label: 'Zoo', count: 2 },
+      { label: 'Alpha', count: 2 },
+      { label: 'Unused', count: 0 },
+      { label: 'Cafe', count: 4 },
+    ])).toBe(true);
+
+    expect(store.getUsageStatistics()).toEqual([
+      expect.objectContaining({ label: 'Cafe', count: 4 }),
+      expect.objectContaining({ label: 'Alpha', count: 2 }),
+      expect.objectContaining({ label: 'Zoo', count: 2 }),
+    ]);
+  });
+
   it('prefers the last used location in the prompt context default', () => {
     const gymLocation = store.resolveLocationInput('Gym');
     expect(gymLocation).not.toBeNull();

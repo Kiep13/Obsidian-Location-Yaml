@@ -5,6 +5,7 @@ import { NewNoteCoordinator } from './services/NewNoteCoordinator';
 import { LocationVaultSyncService } from './services/LocationVaultSyncService';
 import { LocationSettingTab } from './ui/LocationSettingTab';
 import { promptForLocation } from './ui/LocationAssignModal';
+import { LocationStatisticsModal } from './ui/LocationStatisticsModal';
 import type { LocationData, LocationDataAdapter } from './types';
 
 export default class ObsidianLocationPlugin extends Plugin {
@@ -88,6 +89,12 @@ export default class ObsidianLocationPlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: 'open-statistic-modal',
+      name: 'Open Statistic Modal',
+      callback: () => this.openStatisticsModal(),
+    });
+
     this.addSettingTab(new LocationSettingTab(this.app, this.locationStore));
   }
 
@@ -115,6 +122,17 @@ export default class ObsidianLocationPlugin extends Plugin {
     if (!result.success) {
       new Notice(result.message, 6000);
     }
+  }
+
+  private async openStatisticsModal(): Promise<void> {
+    try {
+      await this.locationVaultSyncService.syncNow();
+    } catch {
+      new Notice('Unable to synchronize location statistics.', 6000);
+      return;
+    }
+
+    new LocationStatisticsModal(this.app, this.locationStore.getUsageStatistics()).open();
   }
 
   public override onunload(): void {
