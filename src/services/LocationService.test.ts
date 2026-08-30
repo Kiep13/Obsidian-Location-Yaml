@@ -19,6 +19,35 @@ class MemoryAdapter implements LocationDataAdapter {
   }
 }
 
+function useParsedEmptyLocationFrontMatter(app: App): void {
+  vi.spyOn(app.fileManager, 'processFrontMatter').mockImplementation(async (file, callback) => {
+    const content = await app.vault.read(file);
+    const frontmatter = { location: null } as Record<string, string | null>;
+    callback(frontmatter as unknown as Record<string, string>);
+    const serializedValue = frontmatter.location === null
+      ? 'null'
+      : JSON.stringify(frontmatter.location);
+    await app.vault.modify(
+      file,
+      content.replace(/^location:[^\r\n]*$/m, `location: ${serializedValue ?? ''}`),
+    );
+  });
+}
+
+function useLiteralLocationFrontMatter(app: App, label: string): void {
+  vi.spyOn(app.fileManager, 'processFrontMatter').mockImplementation(async (file, callback) => {
+    const content = await app.vault.read(file);
+    const frontmatter = { location: label };
+    callback(frontmatter);
+    if (frontmatter.location !== label) {
+      await app.vault.modify(
+        file,
+        content.replace(/^location:[^\r\n]*$/m, `location: ${JSON.stringify(frontmatter.location)}`),
+      );
+    }
+  });
+}
+
 describe('LocationService', () => {
   let app: App;
   let adapter: MemoryAdapter;
@@ -148,7 +177,6 @@ describe('LocationService', () => {
 
   it.each([
     'location:',
-    'location: null',
     'location: # comment',
   ])('treats %s as an empty location value', async (locationLine) => {
     coordinator.markReady();
@@ -157,6 +185,27 @@ describe('LocationService', () => {
       file,
       `---\n${locationLine}\n---\n\n# Hello`,
     );
+    if (locationLine.includes('#')) {
+      useParsedEmptyLocationFrontMatter(app);
+    }
+
+    await service.handleVaultCreate(file);
+    const result = await service.handleFileOpen(file);
+
+    expect(result).toEqual({
+      success: true,
+      status: 'saved',
+      locationId: 'location-cafe',
+      locationLabel: 'Cafe',
+    });
+    expect(await app.vault.read(file)).toContain('location: "[[Cafe]]"');
+  });
+
+  it.each(['null', '~'])('treats a parsed YAML %s as empty despite an indented comment', async (nullValue) => {
+    coordinator.markReady();
+    const file = new TFile(`Notes/${nullValue}-location.md`, 'md');
+    await app.vault.modify(file, `---\nlocation: ${nullValue}\n  # comment\n---\n\n# Hello`);
+    useParsedEmptyLocationFrontMatter(app);
 
     await service.handleVaultCreate(file);
     const result = await service.handleFileOpen(file);
@@ -203,6 +252,23 @@ describe('LocationService', () => {
     expect(promptLocation).toHaveBeenCalledTimes(1);
   });
 
+  it('writes an empty location before the delimiter without reading indented body text', async () => {
+    coordinator.markReady();
+    const file = new TFile('Notes/empty-location-with-body.md', 'md');
+    await app.vault.modify(file, '---\nlocation:\n---\n  Body text\n');
+
+    await service.handleVaultCreate(file);
+    const result = await service.handleFileOpen(file);
+
+    expect(result).toEqual({
+      success: true,
+      status: 'saved',
+      locationId: 'location-cafe',
+      locationLabel: 'Cafe',
+    });
+    expect(await app.vault.read(file)).toContain('location: "[[Cafe]]"');
+  });
+
   it('reports a no-op when assigning the same existing location', async () => {
     const file = new TFile('Notes/same-location.md', 'md');
     await app.vault.modify(file, '---\nlocation: [[Cafe]]\n---\n\n# Hello');
@@ -215,6 +281,24 @@ describe('LocationService', () => {
       status: 'skipped',
       reason: 'already_has_location',
     });
+    expect(store.getTopRecentLocations()).toEqual([]);
+  });
+
+  it.each(['null', '~', '# comment'])('preserves a quoted literal label %s as a no-op', async (label) => {
+    const file = new TFile(`Notes/quoted-${label.length}.md`, 'md');
+    await app.vault.modify(file, `---\nlocation: "${label}"\n---\n\n# Hello`);
+    promptLocation.mockResolvedValue({ label });
+    useLiteralLocationFrontMatter(app, label);
+    app.workspace.setActiveFile(file);
+
+    const result = await service.assignActiveFileLocation();
+
+    expect(result).toEqual({
+      success: true,
+      status: 'skipped',
+      reason: 'already_has_location',
+    });
+    expect(await app.vault.read(file)).toContain(`location: "${label}"`);
     expect(store.getTopRecentLocations()).toEqual([]);
   });
 

@@ -67,8 +67,13 @@ function hasLocationFrontmatter(content: string): boolean {
         return true;
       }
 
+      if (match[1].trim() !== '') {
+        return false;
+      }
+
       for (const continuationLine of frontmatterLines.slice(lineIndex + 1)) {
-        if (!continuationLine.trim()) {
+        const trimmedContinuationLine = continuationLine.trim();
+        if (!trimmedContinuationLine || trimmedContinuationLine.startsWith('#')) {
           continue;
         }
 
@@ -207,15 +212,12 @@ export class LocationService {
       const nextLocationKey = normalizeLocationKey(location.label);
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
         const existingValue = frontmatter[LOCATION_FRONTMATTER_FIELD];
-        const parsedExistingValue = typeof existingValue === 'string'
-          ? parseYamlLocationValue(existingValue)
-          : { quoted: false, value: '' };
-        const existingLocationKey = parsedExistingValue.quoted || !isYamlNullValue(parsedExistingValue.value)
-          ? normalizeLocationKey(parsedExistingValue.value)
+        const existingLocationKey = typeof existingValue === 'string'
+          ? normalizeLocationKey(existingValue)
           : '';
         const hasExistingValue =
           existingLocationKey !== '' ||
-          (typeof existingValue !== 'string' && existingValue !== undefined && existingValue !== null);
+          (existingValue !== undefined && existingValue !== null && typeof existingValue !== 'string');
         const isSameLocation = existingLocationKey !== '' && existingLocationKey === nextLocationKey;
 
         if (hasExistingValue && (!overwriteExisting || isSameLocation)) {
