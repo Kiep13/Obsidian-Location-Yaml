@@ -73,7 +73,7 @@ export class LocationAssignModal extends Modal {
 
   public override onOpen(): void {
     this.contentEl.empty();
-    this.titleEl.setText('Place where you create this nore');
+    this.titleEl.setText('Place where you create this note');
     this.modalEl.addClass('location-modal-shell');
     this.contentEl.addClass('location-modal');
     this.applyModalLayout();
