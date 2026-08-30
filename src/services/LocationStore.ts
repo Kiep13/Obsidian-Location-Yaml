@@ -83,6 +83,20 @@ function resolveMappedLocationId(value: unknown, mapping: Map<string, string>): 
   return mapping.get(value) ?? mapping.get(normalizeLocationId(value)) ?? normalizeLocationId(value);
 }
 
+function addLocationIdMapping(mapping: Map<string, string>, rawId: unknown, canonicalId: string): void {
+  if (typeof rawId !== 'string') {
+    return;
+  }
+
+  const normalizedId = getStoredLocationId(rawId);
+  if (!normalizedId) {
+    return;
+  }
+
+  mapping.set(rawId, mapping.get(rawId) ?? canonicalId);
+  mapping.set(normalizedId, mapping.get(normalizedId) ?? canonicalId);
+}
+
 function mergeLoadedData(loadedData: unknown): LocationData {
   if (!isDataRecord(loadedData)) {
     return cloneData(DEFAULT_DATA);
@@ -98,7 +112,7 @@ function mergeLoadedData(loadedData: unknown): LocationData {
   }
 
   const mergedLocations: LocationDefinition[] = [];
-  const locationKeys = new Set<string>();
+  const canonicalLocationByKey = new Map<string, LocationDefinition>();
   const locationIds = new Set<string>();
   const reservedExplicitIds = new Set<string>();
   const locationIdMapping = new Map<string, string>();
@@ -121,7 +135,13 @@ function mergeLoadedData(loadedData: unknown): LocationData {
 
     const label = normalizeLocationLabel(rawLocation.label);
     const key = normalizeLocationKey(label);
-    if (!key || locationKeys.has(key)) {
+    if (!key) {
+      continue;
+    }
+
+    const canonicalLocation = canonicalLocationByKey.get(key);
+    if (canonicalLocation) {
+      addLocationIdMapping(locationIdMapping, rawLocation.id, canonicalLocation.id);
       continue;
     }
 
@@ -130,14 +150,12 @@ function mergeLoadedData(loadedData: unknown): LocationData {
       ? loadedId
       : createUniqueLocationId(label, locationIds, reservedExplicitIds);
 
-    mergedLocations.push({ id, label });
-    locationKeys.add(key);
+    const location = { id, label };
+    mergedLocations.push(location);
+    canonicalLocationByKey.set(key, location);
     locationIds.add(id);
 
-    if (typeof rawLocation.id === 'string' && loadedId) {
-      locationIdMapping.set(rawLocation.id, locationIdMapping.get(rawLocation.id) ?? id);
-      locationIdMapping.set(loadedId, locationIdMapping.get(loadedId) ?? id);
-    }
+    addLocationIdMapping(locationIdMapping, rawLocation.id, id);
   }
 
   const rawSettings = isDataRecord(loadedData.settings) ? loadedData.settings : {};
