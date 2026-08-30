@@ -107,6 +107,16 @@ describe('LocationStatisticsModal', () => {
     expect(findElementWithText(modal.contentEl, 'Location 02').hasClass('is-selected')).toBe(false);
   });
 
+  it('labels SVG segments as location assignments', () => {
+    const modal = new LocationStatisticsModal(new App(), buildStatistics(2));
+    modal.onOpen();
+
+    const segment = findByClass(modal.contentEl, 'location-statistics-donut-segment');
+
+    expect(segment.style['aria-label']).toContain('location assignments');
+    expect(segment.style['aria-label']).not.toContain('notes');
+  });
+
   it('does not render the table', () => {
     const modal = new LocationStatisticsModal(new App(), buildStatistics(11));
     modal.onOpen();

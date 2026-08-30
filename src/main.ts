@@ -8,12 +8,17 @@ import { promptForLocation } from './ui/LocationAssignModal';
 import { LocationStatisticsModal } from './ui/LocationStatisticsModal';
 import type { LocationData, LocationDataAdapter } from './types';
 
+const INITIAL_SYNC_RETRY_BASE_MS = 1000;
+const INITIAL_SYNC_RETRY_MAX_MS = 8000;
+
 export default class ObsidianLocationPlugin extends Plugin {
   private locationStore!: LocationStore;
   private locationService!: LocationService;
   private newNoteCoordinator!: NewNoteCoordinator;
   private locationVaultSyncService!: LocationVaultSyncService;
   private initialSyncStarted = false;
+  private initialSyncRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private initialSyncRetryAttempt = 0;
 
   public async onload(): Promise<void> {
     const dataAdapter: LocationDataAdapter = {
@@ -109,7 +114,7 @@ export default class ObsidianLocationPlugin extends Plugin {
   }
 
   private async initializeAfterMetadataResolved(): Promise<void> {
-    if (this.initialSyncStarted) {
+    if (this.initialSyncStarted || this.initialSyncRetryTimer !== null) {
       return;
     }
 
@@ -125,7 +130,24 @@ export default class ObsidianLocationPlugin extends Plugin {
     } catch {
       this.initialSyncStarted = false;
       new Notice('Unable to synchronize locations from the vault.', 6000);
+      this.scheduleInitialSyncRetry();
     }
+  }
+
+  private scheduleInitialSyncRetry(): void {
+    if (this.initialSyncRetryTimer !== null) {
+      return;
+    }
+
+    this.initialSyncRetryAttempt += 1;
+    const retryDelay = Math.min(
+      INITIAL_SYNC_RETRY_BASE_MS * 2 ** (this.initialSyncRetryAttempt - 1),
+      INITIAL_SYNC_RETRY_MAX_MS,
+    );
+    this.initialSyncRetryTimer = setTimeout(() => {
+      this.initialSyncRetryTimer = null;
+      void this.initializeAfterMetadataResolved();
+    }, retryDelay);
   }
 
   private async assignActiveLocation(): Promise<void> {
@@ -147,6 +169,10 @@ export default class ObsidianLocationPlugin extends Plugin {
   }
 
   public override onunload(): void {
+    if (this.initialSyncRetryTimer !== null) {
+      clearTimeout(this.initialSyncRetryTimer);
+      this.initialSyncRetryTimer = null;
+    }
     this.locationVaultSyncService?.cancel();
     super.onunload();
   }

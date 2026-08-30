@@ -146,7 +146,10 @@ export class LocationStatisticsModal extends Modal {
       pathEl.setAttribute('role', 'button');
       pathEl.setAttribute('pointer-events', 'stroke');
       pathEl.setAttribute('data-segment-key', segment.key);
-      pathEl.setAttribute('aria-label', `${segment.label}: ${segment.count} notes, ${formatPercentage(segment.count, total)}`);
+      pathEl.setAttribute(
+        'aria-label',
+        `${segment.label}: ${segment.count} location assignments, ${formatPercentage(segment.count, total)}`,
+      );
       pathEl.setAttribute('aria-pressed', String(this.selectedSegmentKey === segment.key));
 
       if (segments.length === 1) {

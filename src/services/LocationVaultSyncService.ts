@@ -5,6 +5,8 @@ import { normalizeLocationKey, normalizeLocationLabel } from '../utils/locationN
 import type { LocationStore } from './LocationStore';
 
 const SYNC_DEBOUNCE_MS = 250;
+const SYNC_RETRY_BASE_MS = 500;
+const MAX_BACKGROUND_RETRIES = 3;
 
 export type SyncErrorHandler = (error: unknown) => void;
 
@@ -48,8 +50,11 @@ function collectLocationUsage(app: App): VaultLocationUsage[] {
 
 export class LocationVaultSyncService {
   private pendingTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private syncQueue: Promise<void> = Promise.resolve();
   private timerGeneration = 0;
+  private retryAttempt = 0;
+  private persistencePending = false;
 
   constructor(
     private readonly app: App,
@@ -58,12 +63,21 @@ export class LocationVaultSyncService {
   ) {}
 
   public syncNow(): Promise<void> {
-    this.cancel();
+    this.invalidateScheduledTimers();
 
+    return this.enqueueSync();
+  }
+
+  private enqueueSync(): Promise<void> {
     const syncTask = this.syncQueue.then(async () => {
       const entries = collectLocationUsage(this.app);
       if (this.store.reconcileVaultUsage(entries)) {
+        this.persistencePending = true;
+      }
+
+      if (this.persistencePending) {
         await this.store.save();
+        this.persistencePending = false;
       }
     });
 
@@ -72,8 +86,8 @@ export class LocationVaultSyncService {
   }
 
   public schedule(): void {
-    this.cancel();
-    const timerGeneration = ++this.timerGeneration;
+    this.invalidateScheduledTimers();
+    const timerGeneration = this.timerGeneration;
 
     this.pendingTimer = setTimeout(() => {
       if (timerGeneration !== this.timerGeneration) {
@@ -81,19 +95,27 @@ export class LocationVaultSyncService {
       }
 
       this.pendingTimer = null;
-      void this.syncNow().catch((error: unknown) => {
-        this.reportError(error);
-      });
+      void this.runScheduledSync(timerGeneration);
     }, SYNC_DEBOUNCE_MS);
   }
 
   public cancel(): void {
+    this.invalidateScheduledTimers();
+  }
+
+  private invalidateScheduledTimers(): void {
     if (this.pendingTimer !== null) {
       clearTimeout(this.pendingTimer);
       this.pendingTimer = null;
     }
 
+    if (this.retryTimer !== null) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+
     this.timerGeneration += 1;
+    this.retryAttempt = 0;
   }
 
   public static collectLocationUsage(app: App): VaultLocationUsage[] {
@@ -106,5 +128,43 @@ export class LocationVaultSyncService {
     } catch {
       // An error reporter must not break the sync queue or create an unhandled rejection.
     }
+  }
+
+  private runScheduledSync(timerGeneration: number): Promise<void> {
+    return this.enqueueSync().then(
+      () => {
+        if (timerGeneration === this.timerGeneration) {
+          this.retryAttempt = 0;
+        }
+      },
+      (error: unknown) => {
+        this.reportError(error);
+        if (timerGeneration === this.timerGeneration) {
+          this.scheduleRetry();
+        }
+      },
+    );
+  }
+
+  private scheduleRetry(): void {
+    if (
+      this.pendingTimer !== null ||
+      this.retryAttempt >= MAX_BACKGROUND_RETRIES ||
+      this.retryTimer !== null
+    ) {
+      return;
+    }
+
+    this.retryAttempt += 1;
+    const retryDelay = SYNC_RETRY_BASE_MS * 2 ** (this.retryAttempt - 1);
+    const timerGeneration = this.timerGeneration;
+    this.retryTimer = setTimeout(() => {
+      if (timerGeneration !== this.timerGeneration) {
+        return;
+      }
+
+      this.retryTimer = null;
+      void this.runScheduledSync(timerGeneration);
+    }, retryDelay);
   }
 }

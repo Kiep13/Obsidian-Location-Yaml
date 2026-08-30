@@ -110,6 +110,23 @@ describe('LocationVaultSyncService', () => {
     expect(store.getTopRecentLocations()[0]?.label).toBe('Gym');
   });
 
+  it('persists dirty state on the next sync after a failed save', async () => {
+    await app.vault.create('Notes/one.md', '---\nlocation: Cafe\n---\n');
+    const originalSave = MemoryAdapter.prototype.save.bind(adapter);
+    const save = vi
+      .spyOn(adapter, 'save')
+      .mockRejectedValueOnce(new Error('first save failed'))
+      .mockImplementation((data) => originalSave(data));
+
+    await expect(service.syncNow()).rejects.toThrow('first save failed');
+    expect(adapter.data).toBeNull();
+
+    await service.syncNow();
+
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(adapter.data?.usage).toHaveLength(1);
+  });
+
   it('coalesces scheduled events using the 250ms debounce', async () => {
     vi.useFakeTimers();
     const syncNow = vi.spyOn(service, 'syncNow').mockResolvedValue();
@@ -148,6 +165,52 @@ describe('LocationVaultSyncService', () => {
 
     expect(onError).toHaveBeenCalledOnce();
     expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+    failingService.cancel();
+  });
+
+  it('retries background sync with backoff and persists without a new vault event', async () => {
+    const onError = vi.fn();
+    const originalSave = MemoryAdapter.prototype.save.bind(adapter);
+    const save = vi
+      .spyOn(adapter, 'save')
+      .mockRejectedValueOnce(new Error('first save failed'))
+      .mockImplementation((data) => originalSave(data));
+    const retryingService = new LocationVaultSyncService(app, store, onError);
+    await app.vault.create('Notes/one.md', '---\nlocation: Cafe\n---\n');
+
+    vi.useFakeTimers();
+    retryingService.schedule();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(save).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledOnce();
+    expect(adapter.data).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(499);
+    expect(save).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(adapter.data?.usage).toHaveLength(1);
+    retryingService.cancel();
+  });
+
+  it('stops background retries after the bounded retry budget', async () => {
+    const onError = vi.fn();
+    const save = vi.spyOn(adapter, 'save').mockRejectedValue(new Error('save failed'));
+    const failingService = new LocationVaultSyncService(app, store, onError);
+    await app.vault.create('Notes/one.md', '---\nlocation: Cafe\n---\n');
+
+    vi.useFakeTimers();
+    failingService.schedule();
+    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(16000);
+
+    expect(save).toHaveBeenCalledTimes(4);
+    expect(onError).toHaveBeenCalledTimes(4);
+    failingService.cancel();
   });
 
   it('serializes sync runs and waits for the previous save', async () => {

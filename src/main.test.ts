@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Notice } from 'obsidian';
 import ObsidianLocationPlugin from './main';
+import { NewNoteCoordinator } from './services/NewNoteCoordinator';
+import { LocationStore } from './services/LocationStore';
 import { LocationVaultSyncService } from './services/LocationVaultSyncService';
 import { LocationStatisticsModal } from './ui/LocationStatisticsModal';
 
@@ -45,27 +47,28 @@ describe('ObsidianLocationPlugin', () => {
 
   it('debounces metadata events and reports background sync failures', async () => {
     vi.useFakeTimers();
-    const syncNow = vi
-      .spyOn(LocationVaultSyncService.prototype, 'syncNow')
-      .mockRejectedValue(new Error('background sync failed'));
+    vi.spyOn(LocationStore.prototype, 'save').mockRejectedValue(new Error('background sync failed'));
     const plugin = new ObsidianLocationPlugin();
     await plugin.onload();
+    await plugin.app.vault.create('Notes/one.md', '---\nlocation: Cafe\n---\n');
 
     plugin.app.metadataCache.emit('changed');
     plugin.app.metadataCache.emit('changed');
     await vi.advanceTimersByTimeAsync(249);
-    expect(syncNow).not.toHaveBeenCalled();
+    expect(Notice.history).toHaveLength(0);
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(syncNow).toHaveBeenCalledOnce();
     expect(Notice.history.at(-1)?.message).toBe('Unable to synchronize locations from the vault.');
+    plugin.onunload();
   });
 
   it('reports initial sync failures and allows a later initial retry', async () => {
+    vi.useFakeTimers();
     const syncNow = vi
       .spyOn(LocationVaultSyncService.prototype, 'syncNow')
       .mockRejectedValueOnce(new Error('initial sync failed'))
       .mockResolvedValueOnce();
+    const markReady = vi.spyOn(NewNoteCoordinator.prototype, 'markReady');
     const plugin = new ObsidianLocationPlugin();
     await plugin.onload();
 
@@ -76,10 +79,12 @@ describe('ObsidianLocationPlugin', () => {
     expect(syncNow).toHaveBeenCalledOnce();
     expect(Notice.history.at(-1)?.message).toBe('Unable to synchronize locations from the vault.');
 
-    plugin.app.metadataCache.emit('resolved');
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(syncNow).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
 
     expect(syncNow).toHaveBeenCalledTimes(2);
+    expect(markReady).toHaveBeenCalledOnce();
+    plugin.onunload();
   });
 });
