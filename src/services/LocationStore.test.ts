@@ -46,6 +46,29 @@ describe('LocationStore', () => {
     expect(officeUsage?.count).toBe(2);
   });
 
+  it('assigns collision-safe ids to distinct labels', async () => {
+    const cafeLocation = store.resolveLocationInput('Cafe');
+    expect(cafeLocation).not.toBeNull();
+
+    if (cafeLocation) {
+      store.commitLocation(cafeLocation);
+    }
+
+    const accentedCafeLocation = store.resolveLocationInput('Café');
+    expect(accentedCafeLocation).not.toBeNull();
+    expect(accentedCafeLocation?.id).not.toBe(cafeLocation?.id);
+
+    if (accentedCafeLocation) {
+      store.commitLocation(accentedCafeLocation);
+    }
+
+    expect(store.getKnownLocations().map((location) => location.label)).toEqual(['Cafe', 'Café', 'Home', 'Office']);
+    expect(store.getUsageStatistics().map((entry) => entry.locationId).sort()).toEqual([
+      'location-cafe',
+      accentedCafeLocation?.id,
+    ].sort());
+  });
+
   it('adds new user locations through settings updates', async () => {
     store.updateSettingsFromLabels('Cafe', true, false);
     await store.save();
@@ -75,6 +98,69 @@ describe('LocationStore', () => {
 
     expect(store.getKnownLocations().map((location) => location.label)).toEqual(['Cafe']);
     expect(store.getDefaultLocation()?.label).toBe('Cafe');
+  });
+
+  it('migrates malformed stored data without throwing or losing valid identities', async () => {
+    adapter.data = {
+      schemaVersion: 1,
+      settings: {
+        defaultLocationId: 42,
+        pinnedLocationIds: ['legacy-valid', 7],
+        showPopupOnCreate: 'yes',
+        autoApplyDefaultWhenOnlyOneChoice: null,
+      },
+      locations: [
+        { id: 'legacy-valid', label: 'Valid' },
+        null,
+        { id: '', label: 'Needs id' },
+        { id: 'same-id', label: 'First' },
+        { id: 'same-id', label: 'Second' },
+        { id: 'another-id', label: ' valid ' },
+      ],
+      usage: [
+        { locationId: 'legacy-valid', count: 2, firstSeenAt: 'not-a-date', lastUsedAt: '2026-01-02T00:00:00Z' },
+        { locationId: 'missing', count: 9, firstSeenAt: '2026-01-01T00:00:00Z', lastUsedAt: '2026-01-02T00:00:00Z' },
+        { locationId: 'legacy-valid', count: 'bad', firstSeenAt: '2026-01-01T00:00:00Z', lastUsedAt: '2026-01-02T00:00:00Z' },
+        null,
+      ],
+    } as unknown as LocationData;
+
+    await expect(store.load()).resolves.toBeUndefined();
+    await store.save();
+
+    expect(adapter.data?.locations.map((location) => location.label)).toEqual(['Valid', 'Needs id', 'First', 'Second']);
+    expect(new Set(adapter.data?.locations.map((location) => location.id)).size).toBe(4);
+    expect(store.getLocationById('same-id')?.label).toBe('First');
+    expect(store.getKnownLocations().find((location) => location.label === 'Second')?.id).not.toBe('same-id');
+    expect(store.getSettings()).toEqual({
+      defaultLocationId: 'legacy-valid',
+      pinnedLocationIds: ['legacy-valid'],
+      showPopupOnCreate: true,
+      autoApplyDefaultWhenOnlyOneChoice: true,
+    });
+    expect(adapter.data?.usage).toEqual([{
+      locationId: 'legacy-valid',
+      count: 2,
+      firstSeenAt: '2026-01-02T00:00:00.000Z',
+      lastUsedAt: '2026-01-02T00:00:00.000Z',
+    }]);
+  });
+
+  it('falls back to defaults for a non-object payload', async () => {
+    adapter.data = 'corrupt' as unknown as LocationData;
+
+    await expect(store.load()).resolves.toBeUndefined();
+
+    expect(store.getKnownLocations().map((location) => location.label)).toEqual(['Home', 'Office']);
+    expect(store.getSettings().defaultLocationId).toBe('location-office');
+  });
+
+  it('falls back to defaults for an unsupported schema version', async () => {
+    adapter.data = { schemaVersion: 99 } as unknown as LocationData;
+
+    await expect(store.load()).resolves.toBeUndefined();
+
+    expect(store.getKnownLocations().map((location) => location.label)).toEqual(['Home', 'Office']);
   });
 
   it('reconciles usage from current vault labels without merging distinct labels', async () => {
@@ -116,6 +202,49 @@ describe('LocationStore', () => {
       ['City, Main Street 26', 3],
       ['Main Street 26, City', 1],
     ]);
+  });
+
+  it('preserves lastUsedAt when reconcile only refreshes the count snapshot', async () => {
+    adapter.data = {
+      schemaVersion: 1,
+      settings: {
+        defaultLocationId: 'location-office',
+        pinnedLocationIds: [],
+        showPopupOnCreate: true,
+        autoApplyDefaultWhenOnlyOneChoice: true,
+      },
+      locations: [{ id: 'location-office', label: 'Office' }],
+      usage: [{
+        locationId: 'location-office',
+        count: 1,
+        firstSeenAt: '2026-01-01T00:00:00.000Z',
+        lastUsedAt: '2026-01-02T00:00:00.000Z',
+      }],
+    };
+    await store.load();
+
+    expect(store.reconcileVaultUsage([{ label: 'Office', count: 4 }])).toBe(true);
+    await store.save();
+
+    expect(adapter.data?.usage).toEqual([{
+      locationId: 'location-office',
+      count: 4,
+      firstSeenAt: '2026-01-01T00:00:00.000Z',
+      lastUsedAt: '2026-01-02T00:00:00.000Z',
+    }]);
+    expect(store.reconcileVaultUsage([{ label: 'Office', count: 4 }])).toBe(false);
+  });
+
+  it('initializes lastUsedAt for usage first discovered during reconcile', async () => {
+    expect(store.reconcileVaultUsage([{ label: 'Cafe', count: 1 }])).toBe(true);
+    await store.save();
+
+    expect(adapter.data?.usage).toEqual([{
+      locationId: 'location-cafe',
+      count: 1,
+      firstSeenAt: '2026-06-21T10:00:00.000Z',
+      lastUsedAt: '2026-06-21T10:00:00.000Z',
+    }]);
   });
 
   it('removes usage for locations no longer present in the vault', async () => {

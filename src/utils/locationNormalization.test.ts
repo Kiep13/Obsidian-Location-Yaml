@@ -21,6 +21,12 @@ describe('locationNormalization', () => {
     expect(createLocationId('Home')).toBe('location-home');
   });
 
+  it('keeps lossy slug collisions distinct while retaining simple legacy ids', () => {
+    expect(createLocationId('Cafe')).toBe('location-cafe');
+    expect(createLocationId('Café')).not.toBe(createLocationId('Cafe'));
+    expect(createLocationId('City, Main Street 26')).not.toBe(createLocationId('City Main Street 26'));
+  });
+
   it('formats frontmatter as a wiki link', () => {
     expect(formatLocationFrontmatterValue('Office')).toBe('[[Office]]');
   });

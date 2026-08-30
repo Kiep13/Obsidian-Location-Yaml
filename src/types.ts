@@ -7,6 +7,11 @@ export interface LocationUsage {
   locationId: string;
   count: number;
   firstSeenAt: string;
+  /**
+   * ISO timestamp of the latest explicit location commit. Vault reconciliation
+   * updates the count snapshot but preserves this value because frontmatter
+   * does not contain an event timestamp.
+   */
   lastUsedAt: string;
 }
 
@@ -65,6 +70,7 @@ export type LocationActionResult =
   | { success: false; code: 'missing_active_file' | 'write_failed'; message: string };
 
 export interface LocationDataAdapter {
-  load: () => Promise<LocationData | null>;
+  /** Plugin storage is untrusted at runtime and must be validated by the store. */
+  load: () => Promise<unknown>;
   save: (data: LocationData) => Promise<void>;
 }
