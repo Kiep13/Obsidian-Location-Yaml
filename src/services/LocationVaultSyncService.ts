@@ -1,10 +1,12 @@
 import { LOCATION_FRONTMATTER_FIELD } from '../constants';
 import type { App } from 'obsidian';
 import type { VaultLocationUsage } from '../types';
-import { normalizeLocationLabel } from '../utils/locationNormalization';
+import { normalizeLocationKey, normalizeLocationLabel } from '../utils/locationNormalization';
 import type { LocationStore } from './LocationStore';
 
 const SYNC_DEBOUNCE_MS = 250;
+
+export type SyncErrorHandler = (error: unknown) => void;
 
 function getRawLocationValues(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [value];
@@ -18,16 +20,19 @@ function collectLocationUsage(app: App): VaultLocationUsage[] {
 
   for (const file of markdownFiles) {
     const rawValue = app.metadataCache.getFileCache(file)?.frontmatter?.[LOCATION_FRONTMATTER_FIELD];
+    const locationKeysInFile = new Set<string>();
+
     for (const value of getRawLocationValues(rawValue)) {
       if (typeof value !== 'string') {
         continue;
       }
 
       const label = normalizeLocationLabel(value);
-      const key = label.toLocaleLowerCase();
-      if (!key) {
+      const key = normalizeLocationKey(label);
+      if (!key || locationKeysInFile.has(key)) {
         continue;
       }
+      locationKeysInFile.add(key);
 
       const existingEntry = usageByKey.get(key);
       if (existingEntry) {
@@ -44,13 +49,17 @@ function collectLocationUsage(app: App): VaultLocationUsage[] {
 export class LocationVaultSyncService {
   private pendingTimer: ReturnType<typeof setTimeout> | null = null;
   private syncQueue: Promise<void> = Promise.resolve();
+  private timerGeneration = 0;
 
   constructor(
     private readonly app: App,
     private readonly store: LocationStore,
+    private readonly onError: SyncErrorHandler = () => undefined,
   ) {}
 
   public syncNow(): Promise<void> {
+    this.cancel();
+
     const syncTask = this.syncQueue.then(async () => {
       const entries = collectLocationUsage(this.app);
       if (this.store.reconcileVaultUsage(entries)) {
@@ -63,13 +72,18 @@ export class LocationVaultSyncService {
   }
 
   public schedule(): void {
-    if (this.pendingTimer !== null) {
-      clearTimeout(this.pendingTimer);
-    }
+    this.cancel();
+    const timerGeneration = ++this.timerGeneration;
 
     this.pendingTimer = setTimeout(() => {
+      if (timerGeneration !== this.timerGeneration) {
+        return;
+      }
+
       this.pendingTimer = null;
-      void this.syncNow().catch(() => undefined);
+      void this.syncNow().catch((error: unknown) => {
+        this.reportError(error);
+      });
     }, SYNC_DEBOUNCE_MS);
   }
 
@@ -78,9 +92,19 @@ export class LocationVaultSyncService {
       clearTimeout(this.pendingTimer);
       this.pendingTimer = null;
     }
+
+    this.timerGeneration += 1;
   }
 
   public static collectLocationUsage(app: App): VaultLocationUsage[] {
     return collectLocationUsage(app);
+  }
+
+  private reportError(error: unknown): void {
+    try {
+      this.onError(error);
+    } catch {
+      // An error reporter must not break the sync queue or create an unhandled rejection.
+    }
   }
 }

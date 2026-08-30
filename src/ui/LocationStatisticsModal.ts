@@ -40,6 +40,10 @@ function formatPercentage(count: number, total: number): string {
   return `${Number(percentage.toFixed(1))}%`;
 }
 
+function formatAssignmentUnit(total: number): string {
+  return total === 1 ? 'location assignment' : 'location assignments';
+}
+
 function pointOnCircle(angle: number): { horizontalCoordinate: number; verticalCoordinate: number } {
   const radians = ((angle - 90) * Math.PI) / 180;
   return {
@@ -121,7 +125,7 @@ export class LocationStatisticsModal extends Modal {
       attr: {
         viewBox: '0 0 160 160',
         role: 'img',
-        'aria-label': `${total} notes with a location`,
+        'aria-label': `${total} ${formatAssignmentUnit(total)}`,
       },
     });
     let startAngle = 0;
@@ -165,7 +169,7 @@ export class LocationStatisticsModal extends Modal {
 
     const centerEl = chartWrapEl.createDiv({ cls: 'location-statistics-donut-center' });
     centerEl.createEl('strong', { text: String(total) });
-    centerEl.createSpan({ text: total === 1 ? 'note' : 'notes' });
+    centerEl.createSpan({ text: formatAssignmentUnit(total) });
 
     const legendEl = containerEl.createEl('ul', { cls: 'location-statistics-legend' });
     for (const segment of segments) {

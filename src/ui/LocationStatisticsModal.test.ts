@@ -83,7 +83,7 @@ describe('LocationStatisticsModal', () => {
     const text = getText(modal.contentEl);
     expect(text).toContain('Location 08');
     expect(text).toContain('Other');
-    expect(text).toContain('55 notes');
+    expect(text).toContain('55 location assignments');
     expect(text).toContain('18.2%');
   });
 

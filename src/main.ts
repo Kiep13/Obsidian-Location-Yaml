@@ -32,7 +32,13 @@ export default class ObsidianLocationPlugin extends Plugin {
       this.newNoteCoordinator,
       async (context) => await promptForLocation(this.app, context),
     );
-    this.locationVaultSyncService = new LocationVaultSyncService(this.app, this.locationStore);
+    this.locationVaultSyncService = new LocationVaultSyncService(
+      this.app,
+      this.locationStore,
+      () => {
+        new Notice('Unable to synchronize locations from the vault.', 6000);
+      },
+    );
 
     this.registerEvent(
       this.app.metadataCache.on('resolved', () => {
@@ -113,8 +119,13 @@ export default class ObsidianLocationPlugin extends Plugin {
     }
 
     this.initialSyncStarted = true;
-    await this.locationVaultSyncService.syncNow().catch(() => undefined);
-    this.newNoteCoordinator.markReady();
+    try {
+      await this.locationVaultSyncService.syncNow();
+      this.newNoteCoordinator.markReady();
+    } catch {
+      this.initialSyncStarted = false;
+      new Notice('Unable to synchronize locations from the vault.', 6000);
+    }
   }
 
   private async assignActiveLocation(): Promise<void> {
