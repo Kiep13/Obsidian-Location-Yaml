@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocationStore } from './LocationStore';
 import type { LocationData, LocationDataAdapter } from '../types';
 
@@ -103,6 +103,36 @@ describe('LocationStore', () => {
       store.getKnownLocations().length,
     );
     expect(store.getTopRecentLocations().map((location) => location.label)).toEqual(['Cafe', 'Gym']);
+  });
+
+  it('keeps a normal commit dirty until a retry succeeds without duplicating it', async () => {
+    const originalSave = MemoryAdapter.prototype.save.bind(adapter);
+    const save = vi
+      .spyOn(adapter, 'save')
+      .mockRejectedValueOnce(new Error('first save failed'))
+      .mockImplementation((data) => originalSave(data));
+    const cafeLocation = store.resolveLocationInput('Cafe');
+
+    expect(cafeLocation).not.toBeNull();
+    if (cafeLocation) {
+      store.commitLocation(cafeLocation);
+    }
+
+    expect(store.hasUnsavedChanges()).toBe(true);
+    await expect(store.save()).rejects.toThrow('first save failed');
+    expect(store.hasUnsavedChanges()).toBe(true);
+
+    await store.save();
+
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(store.hasUnsavedChanges()).toBe(false);
+    expect(adapter.data?.locations.filter((location) => location.label === 'Cafe')).toHaveLength(1);
+    expect(adapter.data?.usage.filter((entry) => entry.locationId === 'location-cafe')).toEqual([{
+      locationId: 'location-cafe',
+      count: 1,
+      firstSeenAt: '2026-06-21T10:00:00.000Z',
+      lastUsedAt: '2026-06-21T10:00:00.000Z',
+    }]);
   });
 
   it('adds new user locations through settings updates', async () => {

@@ -244,6 +244,8 @@ function sortUsageEntries(usageEntries: LocationUsage[]): LocationUsage[] {
 
 export class LocationStore {
   private data: LocationData = cloneData(DEFAULT_DATA);
+  private hasPendingChanges = false;
+  private changeVersion = 0;
 
   constructor(
     private readonly dataAdapter: LocationDataAdapter,
@@ -253,10 +255,20 @@ export class LocationStore {
   public async load(): Promise<void> {
     const loadedData = await this.dataAdapter.load();
     this.data = mergeLoadedData(loadedData);
+    this.hasPendingChanges = false;
+    this.changeVersion += 1;
   }
 
   public async save(): Promise<void> {
-    await this.dataAdapter.save(this.data);
+    const saveVersion = this.changeVersion;
+    await this.dataAdapter.save(cloneData(this.data));
+    if (this.changeVersion === saveVersion) {
+      this.hasPendingChanges = false;
+    }
+  }
+
+  public hasUnsavedChanges(): boolean {
+    return this.hasPendingChanges;
   }
 
   public reconcileVaultUsage(entries: VaultLocationUsage[]): boolean {
@@ -327,7 +339,11 @@ export class LocationStore {
 
     const usageChanged = JSON.stringify(this.data.usage) !== JSON.stringify(nextUsage);
     this.data.usage = nextUsage;
-    return locationsChanged || usageChanged;
+    const changed = locationsChanged || usageChanged;
+    if (changed) {
+      this.markChanged();
+    }
+    return changed;
   }
 
   public getSettings(): LocationSettings {
@@ -442,6 +458,7 @@ export class LocationStore {
     const requestedId = getStoredLocationId(location.id);
     if (rawLocationId && requestedId && rawLocationId !== requestedId) {
       this.remapLocationIdReferences(rawLocationId, requestedId);
+      this.markChanged();
     }
 
     const existingLocationByLabel = this.data.locations.find(
@@ -482,6 +499,7 @@ export class LocationStore {
       });
     }
 
+    this.markChanged();
     return committedLocation;
   }
 
@@ -504,6 +522,7 @@ export class LocationStore {
     this.data.settings.pinnedLocationIds = [];
     this.data.settings.showPopupOnCreate = showPopupOnCreate;
     this.data.settings.autoApplyDefaultWhenOnlyOneChoice = autoApplyDefaultWhenOnlyOneChoice;
+    this.markChanged();
   }
 
   public shouldShowPopupOnCreate(): boolean {
@@ -516,6 +535,11 @@ export class LocationStore {
 
   private createUniqueLocationId(label: string): string {
     return createUniqueLocationId(label, new Set(this.data.locations.map((location) => location.id)));
+  }
+
+  private markChanged(): void {
+    this.hasPendingChanges = true;
+    this.changeVersion += 1;
   }
 
   private remapLocationIdReferences(oldLocationId: string, newLocationId: string): void {
