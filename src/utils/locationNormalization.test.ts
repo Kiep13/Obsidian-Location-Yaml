@@ -4,6 +4,7 @@ import {
   dedupeLocationsByKey,
   formatLocationFrontmatterValue,
   matchesLocationQuery,
+  normalizeLocationId,
   normalizeLocationKey,
   normalizeLocationLabel,
 } from './locationNormalization';
@@ -15,6 +16,10 @@ describe('locationNormalization', () => {
 
   it('normalizes keys case-insensitively', () => {
     expect(normalizeLocationKey('Office')).toBe(normalizeLocationKey(' office '));
+  });
+
+  it('trims and Unicode-normalizes location ids', () => {
+    expect(normalizeLocationId('  legacy-id  ')).toBe('legacy-id');
   });
 
   it('creates stable ids from Unicode labels', () => {

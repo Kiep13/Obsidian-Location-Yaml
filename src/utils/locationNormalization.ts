@@ -16,6 +16,10 @@ export function normalizeLocationKey(rawValue: string): string {
   return normalizeLocationLabel(rawValue).toLocaleLowerCase();
 }
 
+export function normalizeLocationId(rawValue: string): string {
+  return rawValue.trim().normalize('NFC');
+}
+
 export function createLocationId(rawValue: string): string {
   const normalizedLabel = normalizeLocationLabel(rawValue);
   if (!normalizedLabel) {

@@ -69,6 +69,42 @@ describe('LocationStore', () => {
     ].sort());
   });
 
+  it('reserves all explicit ids before generating ids for legacy locations without ids', async () => {
+    adapter.data = {
+      schemaVersion: 1,
+      settings: {
+        defaultLocationId: 'location-office',
+        pinnedLocationIds: [],
+        showPopupOnCreate: true,
+        autoApplyDefaultWhenOnlyOneChoice: true,
+      },
+      locations: [
+        { label: 'Office' },
+        { id: 'location-office', label: 'Office Annex' },
+      ],
+      usage: [],
+    } as unknown as LocationData;
+
+    await store.load();
+
+    expect(store.getLocationById('location-office')?.label).toBe('Office Annex');
+    expect(store.getKnownLocations().find((location) => location.label === 'Office')?.id).toBe('location-office-2');
+  });
+
+  it('normalizes commit ids before lookup and prevents duplicate location ids', () => {
+    const firstLocation = store.commitLocation({ id: ' custom-id ', label: 'Cafe' });
+    const sameLocation = store.commitLocation({ id: ' custom-id ', label: 'Cafe' });
+    const conflictingLocation = store.commitLocation({ id: 'custom-id', label: 'Gym' });
+
+    expect(firstLocation.id).toBe('custom-id');
+    expect(sameLocation.id).toBe('custom-id');
+    expect(conflictingLocation.id).not.toBe('custom-id');
+    expect(new Set(store.getKnownLocations().map((location) => location.id)).size).toBe(
+      store.getKnownLocations().length,
+    );
+    expect(store.getTopRecentLocations().map((location) => location.label)).toEqual(['Cafe', 'Gym']);
+  });
+
   it('adds new user locations through settings updates', async () => {
     store.updateSettingsFromLabels('Cafe', true, false);
     await store.save();
@@ -144,6 +180,37 @@ describe('LocationStore', () => {
       firstSeenAt: '2026-01-02T00:00:00.000Z',
       lastUsedAt: '2026-01-02T00:00:00.000Z',
     }]);
+  });
+
+  it('remaps settings and usage references when migration normalizes an id', async () => {
+    adapter.data = {
+      schemaVersion: 1,
+      settings: {
+        defaultLocationId: ' legacy-office ',
+        pinnedLocationIds: [' legacy-office '],
+        showPopupOnCreate: true,
+        autoApplyDefaultWhenOnlyOneChoice: true,
+      },
+      locations: [{ id: ' legacy-office ', label: 'Office' }],
+      usage: [{
+        locationId: ' legacy-office ',
+        count: 3,
+        firstSeenAt: '2026-01-01T00:00:00.000Z',
+        lastUsedAt: '2026-01-02T00:00:00.000Z',
+      }],
+    } as unknown as LocationData;
+
+    await store.load();
+    await store.save();
+
+    expect(adapter.data?.locations).toEqual([{ id: 'legacy-office', label: 'Office' }]);
+    expect(store.getSettings()).toEqual({
+      defaultLocationId: 'legacy-office',
+      pinnedLocationIds: ['legacy-office'],
+      showPopupOnCreate: true,
+      autoApplyDefaultWhenOnlyOneChoice: true,
+    });
+    expect(adapter.data?.usage?.[0]?.locationId).toBe('legacy-office');
   });
 
   it('falls back to defaults for a non-object payload', async () => {

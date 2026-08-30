@@ -12,6 +12,7 @@ import type {
 import {
   createLocationId,
   dedupeLocationsByKey,
+  normalizeLocationId,
   normalizeLocationKey,
   normalizeLocationLabel,
 } from '../utils/locationNormalization';
@@ -53,17 +54,33 @@ function normalizeTimestamp(value: unknown): string | null {
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
 }
 
-function createUniqueLocationId(label: string, usedIds: Set<string>): string {
+function createUniqueLocationId(
+  label: string,
+  usedIds: Set<string>,
+  reservedIds: Set<string> = new Set(),
+): string {
   const baseId = createLocationId(label);
   let candidateId = baseId;
   let suffix = 2;
 
-  while (usedIds.has(candidateId)) {
+  while (usedIds.has(candidateId) || reservedIds.has(candidateId)) {
     candidateId = `${baseId}-${suffix}`;
     suffix += 1;
   }
 
   return candidateId;
+}
+
+function getStoredLocationId(value: unknown): string {
+  return typeof value === 'string' ? normalizeLocationId(value) : '';
+}
+
+function resolveMappedLocationId(value: unknown, mapping: Map<string, string>): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return mapping.get(value) ?? mapping.get(normalizeLocationId(value)) ?? normalizeLocationId(value);
 }
 
 function mergeLoadedData(loadedData: unknown): LocationData {
@@ -83,6 +100,19 @@ function mergeLoadedData(loadedData: unknown): LocationData {
   const mergedLocations: LocationDefinition[] = [];
   const locationKeys = new Set<string>();
   const locationIds = new Set<string>();
+  const reservedExplicitIds = new Set<string>();
+  const locationIdMapping = new Map<string, string>();
+
+  for (const rawLocation of loadedData.locations) {
+    if (!isDataRecord(rawLocation) || typeof rawLocation.id !== 'string') {
+      continue;
+    }
+
+    const explicitId = getStoredLocationId(rawLocation.id);
+    if (explicitId) {
+      reservedExplicitIds.add(explicitId);
+    }
+  }
 
   for (const rawLocation of loadedData.locations) {
     if (!isDataRecord(rawLocation) || typeof rawLocation.label !== 'string') {
@@ -95,22 +125,25 @@ function mergeLoadedData(loadedData: unknown): LocationData {
       continue;
     }
 
-    const loadedId = typeof rawLocation.id === 'string' ? rawLocation.id.trim() : '';
+    const loadedId = getStoredLocationId(rawLocation.id);
     const id = loadedId && !locationIds.has(loadedId)
       ? loadedId
-      : createUniqueLocationId(label, locationIds);
+      : createUniqueLocationId(label, locationIds, reservedExplicitIds);
 
     mergedLocations.push({ id, label });
     locationKeys.add(key);
     locationIds.add(id);
+
+    if (typeof rawLocation.id === 'string' && loadedId) {
+      locationIdMapping.set(rawLocation.id, locationIdMapping.get(rawLocation.id) ?? id);
+      locationIdMapping.set(loadedId, locationIdMapping.get(loadedId) ?? id);
+    }
   }
 
   const rawSettings = isDataRecord(loadedData.settings) ? loadedData.settings : {};
-  const configuredDefaultId = typeof rawSettings.defaultLocationId === 'string'
-    ? rawSettings.defaultLocationId
-    : '';
+  const configuredDefaultId = resolveMappedLocationId(rawSettings.defaultLocationId, locationIdMapping);
   const configuredPinnedIds = Array.isArray(rawSettings.pinnedLocationIds)
-    ? rawSettings.pinnedLocationIds.filter((locationId): locationId is string => typeof locationId === 'string')
+    ? rawSettings.pinnedLocationIds.map((locationId) => resolveMappedLocationId(locationId, locationIdMapping))
     : [];
   const mergedSettings: LocationSettings = {
     defaultLocationId:
@@ -136,7 +169,7 @@ function mergeLoadedData(loadedData: unknown): LocationData {
       continue;
     }
 
-    const locationId = rawUsageEntry.locationId;
+    const locationId = resolveMappedLocationId(rawUsageEntry.locationId, locationIdMapping);
     const count = normalizeCount(rawUsageEntry.count);
     if (!locationIds.has(locationId) || count === null) {
       continue;
@@ -387,10 +420,16 @@ export class LocationStore {
 
   public commitLocation(location: LocationDefinition): LocationDefinition {
     const normalizedLabel = normalizeLocationLabel(location.label);
+    const rawLocationId = typeof location.id === 'string' ? location.id : '';
+    const requestedId = getStoredLocationId(location.id);
+    if (rawLocationId && requestedId && rawLocationId !== requestedId) {
+      this.remapLocationIdReferences(rawLocationId, requestedId);
+    }
+
     const existingLocationByLabel = this.data.locations.find(
       (knownLocation) => normalizeLocationKey(knownLocation.label) === normalizeLocationKey(normalizedLabel),
     );
-    const existingLocationById = this.getLocationById(location.id);
+    const existingLocationById = this.getLocationById(requestedId);
     const existingLocation = existingLocationByLabel ?? (
       existingLocationById && normalizeLocationKey(existingLocationById.label) === normalizeLocationKey(normalizedLabel)
         ? existingLocationById
@@ -401,7 +440,6 @@ export class LocationStore {
     }
 
     const nowIso = this.clock().toISOString();
-    const requestedId = location.id.trim();
     const committedLocation = existingLocation ?? {
       id: existingLocationById || !requestedId ? this.createUniqueLocationId(normalizedLabel) : requestedId,
       label: normalizedLabel,
@@ -460,5 +498,43 @@ export class LocationStore {
 
   private createUniqueLocationId(label: string): string {
     return createUniqueLocationId(label, new Set(this.data.locations.map((location) => location.id)));
+  }
+
+  private remapLocationIdReferences(oldLocationId: string, newLocationId: string): void {
+    if (!oldLocationId || oldLocationId === newLocationId) {
+      return;
+    }
+
+    const normalizedOldLocationId = normalizeLocationId(oldLocationId);
+    const isOldLocationId = (locationId: string): boolean =>
+      normalizeLocationId(locationId) === normalizedOldLocationId;
+
+    if (isOldLocationId(this.data.settings.defaultLocationId)) {
+      this.data.settings.defaultLocationId = newLocationId;
+    }
+
+    this.data.settings.pinnedLocationIds = this.data.settings.pinnedLocationIds.map((locationId) =>
+      isOldLocationId(locationId) ? newLocationId : locationId,
+    );
+
+    const usageByLocationId = new Map<string, LocationUsage>();
+    for (const usageEntry of this.data.usage) {
+      const locationId = isOldLocationId(usageEntry.locationId) ? newLocationId : usageEntry.locationId;
+      const existingUsage = usageByLocationId.get(locationId);
+      if (!existingUsage) {
+        usageByLocationId.set(locationId, { ...usageEntry, locationId });
+        continue;
+      }
+
+      existingUsage.count = Math.min(existingUsage.count + usageEntry.count, Number.MAX_SAFE_INTEGER);
+      existingUsage.firstSeenAt = existingUsage.firstSeenAt < usageEntry.firstSeenAt
+        ? existingUsage.firstSeenAt
+        : usageEntry.firstSeenAt;
+      existingUsage.lastUsedAt = existingUsage.lastUsedAt > usageEntry.lastUsedAt
+        ? existingUsage.lastUsedAt
+        : usageEntry.lastUsedAt;
+    }
+
+    this.data.usage = [...usageByLocationId.values()];
   }
 }
