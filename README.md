@@ -85,9 +85,10 @@ corepack pnpm lint
 
 ## Release
 
-This repository publishes tagged GitHub Releases for BRAT. The plugin version
-in `package.json` and `manifest.json` must match. `versions.json` maps each
-plugin version to the minimum supported Obsidian version; for example:
+This repository publishes tagged GitHub Releases for BRAT through GitHub
+Actions. The plugin version in `package.json` and `manifest.json` must match.
+`versions.json` maps each plugin version to the minimum supported Obsidian
+version; for example:
 
 ```json
 {
@@ -98,7 +99,7 @@ plugin version to the minimum supported Obsidian version; for example:
 Version keys and release tags use semver without a `v` prefix.
 
 For a patch or minor release, run the corresponding command from the repository
-root:
+root to update the local version and build a validation package:
 
 ```bash
 corepack pnpm run release:patch
@@ -107,7 +108,6 @@ corepack pnpm run release:minor
 
 Each command runs typecheck, tests, lint, and the production build before
 bumping the version. The version hook updates `manifest.json` and
-`versions.json`; the release script pushes the current branch and tag, then
-creates a GitHub Release containing `main.js`, `manifest.json`, and
-`styles.css`. The release requires an authenticated GitHub CLI with push and
-release permissions for `Kiep13/Obsidian-Location-Yaml`.
+`versions.json`. The local `release:validate` and `release:package` scripts do
+not push or publish anything; GitHub Actions creates or updates the Release
+when an `X.Y.Z` tag is pushed.

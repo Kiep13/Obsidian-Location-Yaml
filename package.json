@@ -19,13 +19,15 @@
     "test": "vitest --run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src obsidian.ts test-setup.ts vitest.config.ts esbuild.config.mjs eslint.config.mjs --ext .ts,.mjs",
-    "format": "prettier --write README.md agents.md manifest.json package.json esbuild.config.mjs eslint.config.mjs tsconfig.json vitest.config.ts test-setup.ts obsidian.ts install.sh version-bump.mjs release.mjs \"src/**/*.{ts,css}\"",
+    "lint": "eslint src obsidian.ts test-setup.ts vitest.config.ts esbuild.config.mjs eslint.config.mjs release.mjs release.test.mjs --ext .ts,.mjs",
+    "format": "prettier --write README.md agents.md manifest.json package.json esbuild.config.mjs eslint.config.mjs tsconfig.json vitest.config.ts test-setup.ts obsidian.ts install.sh version-bump.mjs release.mjs release.test.mjs \"src/**/*.{ts,css}\"",
     "preversion": "corepack pnpm typecheck && corepack pnpm test && corepack pnpm lint && corepack pnpm build",
     "version": "node version-bump.mjs",
-    "release": "node release.mjs",
-    "release:patch": "corepack pnpm version patch && node release.mjs",
-    "release:minor": "corepack pnpm version minor && node release.mjs"
+    "release": "node release.mjs package",
+    "release:validate": "node release.mjs validate",
+    "release:package": "node release.mjs package",
+    "release:patch": "corepack pnpm version patch && corepack pnpm run release:package",
+    "release:minor": "corepack pnpm version minor && corepack pnpm run release:package"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
