@@ -91,7 +91,7 @@ plugin version to the minimum supported Obsidian version; for example:
 
 ```json
 {
-  "0.2.1": "1.5.0"
+  "0.2.2": "1.5.0"
 }
 ```
 
