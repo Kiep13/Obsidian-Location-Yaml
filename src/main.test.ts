@@ -87,4 +87,54 @@ describe('ObsidianLocationPlugin', () => {
     expect(markReady).toHaveBeenCalledOnce();
     plugin.onunload();
   });
+
+  it('retries initial sync when metadata cache is still unresolved', async () => {
+    vi.useFakeTimers();
+    const syncNow = vi.spyOn(LocationVaultSyncService.prototype, 'syncNow').mockResolvedValue();
+    const markReady = vi.spyOn(NewNoteCoordinator.prototype, 'markReady');
+    const plugin = new ObsidianLocationPlugin();
+    await plugin.onload();
+    await plugin.app.vault.create('Notes/one.md', '---\nlocation: Cafe\n---\n');
+    vi.spyOn(plugin.app.metadataCache, 'getFileCache')
+      .mockReturnValueOnce(null)
+      .mockReturnValue({ frontmatter: {} });
+
+    plugin.app.metadataCache.emit('resolved');
+
+    expect(syncNow).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(syncNow).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(syncNow).toHaveBeenCalledOnce();
+    expect(markReady).toHaveBeenCalledOnce();
+    plugin.onunload();
+  });
+
+  it('suppresses a post-unload initial failure from a deferred save', async () => {
+    vi.useFakeTimers();
+    let rejectSave: (reason?: unknown) => void = () => undefined;
+    const deferredSave = new Promise<void>((resolveSave, rejectSavePromise) => {
+      void resolveSave;
+      rejectSave = rejectSavePromise;
+    });
+    const save = vi.spyOn(LocationStore.prototype, 'save').mockReturnValue(deferredSave);
+    const plugin = new ObsidianLocationPlugin();
+    await plugin.onload();
+    await plugin.app.vault.create('Notes/one.md', '---\nlocation: Cafe\n---\n');
+
+    plugin.app.metadataCache.emit('resolved');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(save).toHaveBeenCalledOnce();
+
+    plugin.onunload();
+    rejectSave(new Error('deferred save failed'));
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(10000);
+
+    expect(Notice.history).toHaveLength(0);
+    expect(save).toHaveBeenCalledOnce();
+  });
 });

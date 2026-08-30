@@ -19,6 +19,8 @@ export default class ObsidianLocationPlugin extends Plugin {
   private initialSyncStarted = false;
   private initialSyncRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private initialSyncRetryAttempt = 0;
+  private lifecycleGeneration = 0;
+  private unloaded = false;
 
   public async onload(): Promise<void> {
     const dataAdapter: LocationDataAdapter = {
@@ -114,20 +116,31 @@ export default class ObsidianLocationPlugin extends Plugin {
   }
 
   private async initializeAfterMetadataResolved(): Promise<void> {
-    if (this.initialSyncStarted || this.initialSyncRetryTimer !== null) {
+    if (this.unloaded || this.initialSyncStarted || this.initialSyncRetryTimer !== null) {
       return;
     }
 
     const markdownFiles = this.app.vault.getMarkdownFiles();
     if (markdownFiles.some((file) => this.app.metadataCache.getFileCache(file) === null)) {
+      this.scheduleInitialSyncRetry();
       return;
     }
 
+    const lifecycleGeneration = this.lifecycleGeneration;
     this.initialSyncStarted = true;
     try {
       await this.locationVaultSyncService.syncNow();
+      if (!this.isLifecycleActive(lifecycleGeneration)) {
+        return;
+      }
+
+      this.initialSyncRetryAttempt = 0;
       this.newNoteCoordinator.markReady();
     } catch {
+      if (!this.isLifecycleActive(lifecycleGeneration)) {
+        return;
+      }
+
       this.initialSyncStarted = false;
       new Notice('Unable to synchronize locations from the vault.', 6000);
       this.scheduleInitialSyncRetry();
@@ -135,7 +148,7 @@ export default class ObsidianLocationPlugin extends Plugin {
   }
 
   private scheduleInitialSyncRetry(): void {
-    if (this.initialSyncRetryTimer !== null) {
+    if (this.unloaded || this.initialSyncRetryTimer !== null) {
       return;
     }
 
@@ -144,10 +157,19 @@ export default class ObsidianLocationPlugin extends Plugin {
       INITIAL_SYNC_RETRY_BASE_MS * 2 ** (this.initialSyncRetryAttempt - 1),
       INITIAL_SYNC_RETRY_MAX_MS,
     );
+    const lifecycleGeneration = this.lifecycleGeneration;
     this.initialSyncRetryTimer = setTimeout(() => {
       this.initialSyncRetryTimer = null;
+      if (!this.isLifecycleActive(lifecycleGeneration)) {
+        return;
+      }
+
       void this.initializeAfterMetadataResolved();
     }, retryDelay);
+  }
+
+  private isLifecycleActive(lifecycleGeneration: number): boolean {
+    return !this.unloaded && lifecycleGeneration === this.lifecycleGeneration;
   }
 
   private async assignActiveLocation(): Promise<void> {
@@ -158,10 +180,19 @@ export default class ObsidianLocationPlugin extends Plugin {
   }
 
   private async openStatisticsModal(): Promise<void> {
+    const lifecycleGeneration = this.lifecycleGeneration;
     try {
       await this.locationVaultSyncService.syncNow();
     } catch {
+      if (!this.isLifecycleActive(lifecycleGeneration)) {
+        return;
+      }
+
       new Notice('Unable to synchronize location statistics.', 6000);
+      return;
+    }
+
+    if (!this.isLifecycleActive(lifecycleGeneration)) {
       return;
     }
 
@@ -169,6 +200,8 @@ export default class ObsidianLocationPlugin extends Plugin {
   }
 
   public override onunload(): void {
+    this.unloaded = true;
+    this.lifecycleGeneration += 1;
     if (this.initialSyncRetryTimer !== null) {
       clearTimeout(this.initialSyncRetryTimer);
       this.initialSyncRetryTimer = null;

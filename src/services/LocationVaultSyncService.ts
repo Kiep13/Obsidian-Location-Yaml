@@ -55,6 +55,7 @@ export class LocationVaultSyncService {
   private timerGeneration = 0;
   private retryAttempt = 0;
   private persistencePending = false;
+  private disposed = false;
 
   constructor(
     private readonly app: App,
@@ -63,6 +64,10 @@ export class LocationVaultSyncService {
   ) {}
 
   public syncNow(): Promise<void> {
+    if (this.disposed) {
+      return Promise.resolve();
+    }
+
     this.invalidateScheduledTimers();
 
     return this.enqueueSync();
@@ -86,6 +91,10 @@ export class LocationVaultSyncService {
   }
 
   public schedule(): void {
+    if (this.disposed) {
+      return;
+    }
+
     this.invalidateScheduledTimers();
     const timerGeneration = this.timerGeneration;
 
@@ -100,6 +109,7 @@ export class LocationVaultSyncService {
   }
 
   public cancel(): void {
+    this.disposed = true;
     this.invalidateScheduledTimers();
   }
 
@@ -133,21 +143,24 @@ export class LocationVaultSyncService {
   private runScheduledSync(timerGeneration: number): Promise<void> {
     return this.enqueueSync().then(
       () => {
-        if (timerGeneration === this.timerGeneration) {
+        if (!this.disposed && timerGeneration === this.timerGeneration) {
           this.retryAttempt = 0;
         }
       },
       (error: unknown) => {
-        this.reportError(error);
-        if (timerGeneration === this.timerGeneration) {
-          this.scheduleRetry();
+        if (this.disposed || timerGeneration !== this.timerGeneration) {
+          return;
         }
+
+        this.reportError(error);
+        this.scheduleRetry();
       },
     );
   }
 
   private scheduleRetry(): void {
     if (
+      this.disposed ||
       this.pendingTimer !== null ||
       this.retryAttempt >= MAX_BACKGROUND_RETRIES ||
       this.retryTimer !== null

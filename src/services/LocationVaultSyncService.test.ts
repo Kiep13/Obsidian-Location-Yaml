@@ -213,6 +213,32 @@ describe('LocationVaultSyncService', () => {
     failingService.cancel();
   });
 
+  it('suppresses a post-cancel error and retry from a deferred background save', async () => {
+    let rejectSave: (reason?: unknown) => void = () => undefined;
+    const deferredSave = new Promise<void>((resolveSave, rejectSavePromise) => {
+      void resolveSave;
+      rejectSave = rejectSavePromise;
+    });
+    const onError = vi.fn();
+    const save = vi.spyOn(adapter, 'save').mockReturnValue(deferredSave);
+    const deferredService = new LocationVaultSyncService(app, store, onError);
+    await app.vault.create('Notes/one.md', '---\nlocation: Cafe\n---\n');
+
+    vi.useFakeTimers();
+    deferredService.schedule();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(save).toHaveBeenCalledOnce();
+
+    deferredService.cancel();
+    rejectSave(new Error('deferred save failed'));
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(10000);
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(save).toHaveBeenCalledOnce();
+  });
+
   it('serializes sync runs and waits for the previous save', async () => {
     const blockingAdapter = new BlockingAdapter();
     const blockingStore = new LocationStore(
