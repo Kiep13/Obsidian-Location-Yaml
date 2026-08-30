@@ -3,6 +3,7 @@ import { App, TFile } from 'obsidian';
 import { LocationStore } from './LocationStore';
 import { NewNoteCoordinator } from './NewNoteCoordinator';
 import { LocationService } from './LocationService';
+import { LocationVaultSyncService } from './LocationVaultSyncService';
 import type { LocationData, LocationDataAdapter, LocationPromptContext, LocationPromptResult } from '../types';
 
 type PromptLocation = (context: LocationPromptContext) => Promise<LocationPromptResult | null>;
@@ -90,6 +91,36 @@ describe('LocationService', () => {
 
     const recentLocations = store.getTopRecentLocations(1);
     expect(recentLocations[0]?.label).toBe('Cafe');
+  });
+
+  it('retries a committed location after its first persistence attempt fails', async () => {
+    coordinator.markReady();
+    const file = await app.vault.create('Notes/retry-location.md', '# Hello');
+    await service.handleVaultCreate(file);
+
+    const originalSave = MemoryAdapter.prototype.save.bind(adapter);
+    const save = vi
+      .spyOn(adapter, 'save')
+      .mockRejectedValueOnce(new Error('first save failed'))
+      .mockImplementation((data) => originalSave(data));
+
+    await expect(service.handleFileOpen(file)).rejects.toThrow('first save failed');
+    expect(store.hasUnsavedChanges()).toBe(true);
+    expect(adapter.data).toBeNull();
+
+    const syncService = new LocationVaultSyncService(app, store);
+    await syncService.syncNow();
+
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(store.hasUnsavedChanges()).toBe(false);
+    expect(adapter.data?.locations.filter((location) => location.label === 'Cafe')).toHaveLength(1);
+    const cafeId = adapter.data?.locations.find((location) => location.label === 'Cafe')?.id;
+    expect(adapter.data?.usage).toContainEqual({
+      locationId: cafeId,
+      count: 1,
+      firstSeenAt: '2026-06-21T10:00:00.000Z',
+      lastUsedAt: '2026-06-21T10:00:00.000Z',
+    });
   });
 
   it('auto-applies the only known location without opening the picker', async () => {

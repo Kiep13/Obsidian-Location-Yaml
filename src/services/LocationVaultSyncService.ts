@@ -76,7 +76,7 @@ export class LocationVaultSyncService {
   private enqueueSync(): Promise<void> {
     const syncTask = this.syncQueue.then(async () => {
       const entries = collectLocationUsage(this.app);
-      if (this.store.reconcileVaultUsage(entries)) {
+      if (this.store.reconcileVaultUsage(entries) || this.store.hasUnsavedChanges()) {
         this.persistencePending = true;
       }
 
