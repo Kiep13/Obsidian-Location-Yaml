@@ -83,7 +83,7 @@ describe('LocationStatisticsModal', () => {
     const text = getText(modal.contentEl);
     expect(text).toContain('Location 08');
     expect(text).toContain('Other');
-    expect(text).toContain('55 notes');
+    expect(text).toContain('55 location assignments');
     expect(text).toContain('18.2%');
   });
 
@@ -105,6 +105,16 @@ describe('LocationStatisticsModal', () => {
 
     expect(findElementWithText(modal.contentEl, 'Location 01').hasClass('is-selected')).toBe(true);
     expect(findElementWithText(modal.contentEl, 'Location 02').hasClass('is-selected')).toBe(false);
+  });
+
+  it('labels SVG segments as location assignments', () => {
+    const modal = new LocationStatisticsModal(new App(), buildStatistics(2));
+    modal.onOpen();
+
+    const segment = findByClass(modal.contentEl, 'location-statistics-donut-segment');
+
+    expect(segment.style['aria-label']).toContain('location assignments');
+    expect(segment.style['aria-label']).not.toContain('notes');
   });
 
   it('does not render the table', () => {
