@@ -213,6 +213,45 @@ describe('LocationStore', () => {
     expect(adapter.data?.usage?.[0]?.locationId).toBe('legacy-office');
   });
 
+  it('remaps duplicate-label references to the first canonical location', async () => {
+    adapter.data = {
+      schemaVersion: 1,
+      settings: {
+        defaultLocationId: 'location-office-legacy',
+        pinnedLocationIds: ['location-office-legacy'],
+        showPopupOnCreate: true,
+        autoApplyDefaultWhenOnlyOneChoice: true,
+      },
+      locations: [
+        { id: 'location-office', label: 'Office' },
+        { id: 'location-office-legacy', label: ' office ' },
+      ],
+      usage: [{
+        locationId: 'location-office-legacy',
+        count: 4,
+        firstSeenAt: '2026-01-01T00:00:00.000Z',
+        lastUsedAt: '2026-01-02T00:00:00.000Z',
+      }],
+    };
+
+    await store.load();
+    await store.save();
+
+    expect(adapter.data?.locations).toEqual([{ id: 'location-office', label: 'Office' }]);
+    expect(store.getSettings()).toEqual({
+      defaultLocationId: 'location-office',
+      pinnedLocationIds: ['location-office'],
+      showPopupOnCreate: true,
+      autoApplyDefaultWhenOnlyOneChoice: true,
+    });
+    expect(adapter.data?.usage).toEqual([{
+      locationId: 'location-office',
+      count: 4,
+      firstSeenAt: '2026-01-01T00:00:00.000Z',
+      lastUsedAt: '2026-01-02T00:00:00.000Z',
+    }]);
+  });
+
   it('falls back to defaults for a non-object payload', async () => {
     adapter.data = 'corrupt' as unknown as LocationData;
 
