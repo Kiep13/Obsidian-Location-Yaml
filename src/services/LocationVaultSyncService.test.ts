@@ -69,7 +69,10 @@ describe('LocationVaultSyncService', () => {
     ]);
   });
 
-  it('counts each note once for each unique location in a multi-value field', () => {
+  it('counts each note once for each unique location in a multi-value field', async () => {
+    await app.vault.create('Notes/one.md', '# One');
+    await app.vault.create('Notes/two.md', '# Two');
+
     const valuesByPath: Record<string, unknown> = {
       'Notes/one.md': ['[[City|Local city]]', 'City', 'Beach'],
       'Notes/two.md': ['[[City]]', 'Beach'],
@@ -129,16 +132,16 @@ describe('LocationVaultSyncService', () => {
 
   it('coalesces scheduled events using the 250ms debounce', async () => {
     vi.useFakeTimers();
-    const syncNow = vi.spyOn(service, 'syncNow').mockResolvedValue();
+    const markdownFileScan = vi.spyOn(app.vault, 'getMarkdownFiles');
 
     service.schedule();
     service.schedule();
 
     await vi.advanceTimersByTimeAsync(249);
-    expect(syncNow).not.toHaveBeenCalled();
+    expect(markdownFileScan).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(syncNow).toHaveBeenCalledOnce();
+    expect(markdownFileScan).toHaveBeenCalledOnce();
   });
 
   it('cancels a pending scheduled scan before a manual sync', async () => {
@@ -241,16 +244,16 @@ describe('LocationVaultSyncService', () => {
 
   it('allows scheduling and manual sync again after a reversible cancel', async () => {
     vi.useFakeTimers();
-    const syncNow = vi.spyOn(service, 'syncNow');
+    const markdownFileScan = vi.spyOn(app.vault, 'getMarkdownFiles');
 
     service.cancel();
     service.schedule();
     await vi.advanceTimersByTimeAsync(250);
 
-    expect(syncNow).toHaveBeenCalledOnce();
+    expect(markdownFileScan).toHaveBeenCalledOnce();
 
     await service.syncNow();
-    expect(syncNow).toHaveBeenCalledTimes(2);
+    expect(markdownFileScan).toHaveBeenCalledTimes(2);
   });
 
   it('serializes sync runs and waits for the previous save', async () => {

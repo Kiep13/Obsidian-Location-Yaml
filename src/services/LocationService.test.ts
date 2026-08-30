@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { App, TFile } from 'obsidian';
 import { LocationStore } from './LocationStore';
 import { NewNoteCoordinator } from './NewNoteCoordinator';
@@ -54,7 +54,7 @@ describe('LocationService', () => {
   let adapter: MemoryAdapter;
   let store: LocationStore;
   let coordinator: NewNoteCoordinator;
-  let promptLocation: PromptLocation;
+  let promptLocation: Mock<PromptLocation>;
   let service: LocationService;
 
   beforeEach(async () => {
