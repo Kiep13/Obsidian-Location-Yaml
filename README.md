@@ -51,8 +51,6 @@ Open the plugin settings to edit:
 - `Auto-apply single choice`: this option is stored in plugin data, but the current implementation does not automatically apply a single choice
 
 The frontmatter property name is fixed as `location`; it is not configurable.
-There is no separate pinned-location editor. The last location committed by the
-picker is retained internally as the pinned location for plugin state.
 
 The value written to a note has this form:
 
@@ -60,14 +58,16 @@ The value written to a note has this form:
 location: "[[Office]]"
 ```
 
-`data.json` is derived state. The plugin rebuilds its location usage from the
-`location` values in Markdown frontmatter, including scalar and string-array
-values, and does not rewrite existing notes during synchronization.
+The plugin persists its state in `data.json`: `settings` and location
+definitions in `locations` are persisted plugin state, while `usage` is derived
+from the `location` values in Markdown frontmatter. The plugin reconciles that
+usage from scalar and string-array values and does not rewrite existing notes
+during synchronization.
 
 ## Commands
 
 - `Assign location to active note` opens the picker for the active Markdown note
-- `Open Statistic Modal` synchronizes usage and displays counts and percentages for the top eight locations plus `Other`
+- `Open Statistic Modal` synchronizes usage and displays counts and percentages for the top eight locations and, when more than eight locations are represented, an `Other` segment
 
 ## Development
 
