@@ -252,6 +252,42 @@ describe('LocationService', () => {
     expect(promptLocation).toHaveBeenCalledTimes(1);
   });
 
+  it('recognizes only a top-level location key, not metadata.location', async () => {
+    coordinator.markReady();
+    promptLocation.mockResolvedValue(null);
+    const nestedFile = new TFile('Notes/nested-location.md', 'md');
+    await app.vault.modify(
+      nestedFile,
+      '---\nmetadata:\n  location: Nested\n---\n\n# Hello',
+    );
+
+    await service.handleVaultCreate(nestedFile);
+    const nestedResult = await service.handleFileOpen(nestedFile);
+
+    expect(nestedResult).toEqual({
+      success: true,
+      status: 'skipped',
+      reason: 'cancelled',
+    });
+    expect(promptLocation).toHaveBeenCalledTimes(1);
+
+    const topLevelFile = new TFile('Notes/top-level-location.md', 'md');
+    await app.vault.modify(
+      topLevelFile,
+      '---\nmetadata:\n  location: Nested\nlocation: Top\n---\n\n# Hello',
+    );
+
+    await service.handleVaultCreate(topLevelFile);
+    const topLevelResult = await service.handleFileOpen(topLevelFile);
+
+    expect(topLevelResult).toEqual({
+      success: true,
+      status: 'skipped',
+      reason: 'already_has_location',
+    });
+    expect(promptLocation).toHaveBeenCalledTimes(1);
+  });
+
   it('writes an empty location before the delimiter without reading indented body text', async () => {
     coordinator.markReady();
     const file = new TFile('Notes/empty-location-with-body.md', 'md');
