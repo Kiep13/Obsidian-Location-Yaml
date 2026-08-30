@@ -1,15 +1,22 @@
 # Obsidian Location
 
-Capture the location where each new note is created.
+Capture the location where new Markdown notes are created and store it in
+frontmatter.
 
 ## Features
 
-- Shows a location picker when a new markdown note is created
-- Offers a default location, pinned locations, and top-5 previously used locations
-- Synchronizes locations and usage counts from Markdown frontmatter into `data.json`
-- Writes the selected location into note frontmatter as `location`
-- Reuses existing locations instead of duplicating them
-- Keeps differently written location labels separate without rewriting existing notes
+- Prompts for a location when a newly created Markdown note is opened
+- Uses the most-used locations as suggestions and falls back to the configured default
+- Synchronizes location usage from Markdown frontmatter into the plugin's `data.json`
+- Writes the selected location to the fixed `location` frontmatter property as a wiki link
+- Reuses normalized existing locations and keeps distinct labels separate
+- Provides commands to assign a location to the active note and open location statistics
+
+Automatic prompting applies only when the plugin has finished its initial
+startup scan, the option is enabled, and the note is opened within 10 minutes
+of creation. Notes that already contain `location` are not overwritten by this
+automatic flow. The manual assignment command can overwrite the active note's
+existing location.
 
 ## Installation
 
@@ -25,13 +32,11 @@ Obsidian community plugins.
 
 ### Local installation
 
-1. Build the plugin:
+From the repository root, build and install the plugin into an existing vault:
 
 ```bash
 corepack pnpm build
 ```
-
-2. Install into a vault:
 
 ```bash
 bash install.sh "/path/to/your/vault"
@@ -41,9 +46,28 @@ bash install.sh "/path/to/your/vault"
 
 Open the plugin settings to edit:
 
-- default location
-- pinned locations
-- frontmatter field name
+- `Default location`: fallback value for the picker when no usage history is available
+- `Show location picker`: enables the automatic new-note flow
+- `Auto-apply single choice`: this option is stored in plugin data, but the current implementation does not automatically apply a single choice
+
+The frontmatter property name is fixed as `location`; it is not configurable.
+There is no separate pinned-location editor. The last location committed by the
+picker is retained internally as the pinned location for plugin state.
+
+The value written to a note has this form:
+
+```yaml
+location: "[[Office]]"
+```
+
+`data.json` is derived state. The plugin rebuilds its location usage from the
+`location` values in Markdown frontmatter, including scalar and string-array
+values, and does not rewrite existing notes during synchronization.
+
+## Commands
+
+- `Assign location to active note` opens the picker for the active Markdown note
+- `Open Statistic Modal` synchronizes usage and displays counts and percentages for the top eight locations plus `Other`
 
 ## Development
 
@@ -61,18 +85,29 @@ corepack pnpm lint
 
 ## Release
 
-This repository publishes tagged GitHub Releases for BRAT. The release tag and
-the versions in `package.json`, `manifest.json`, and `versions.json` use the
-same semver value without a `v` prefix.
+This repository publishes tagged GitHub Releases for BRAT. The plugin version
+in `package.json` and `manifest.json` must match. `versions.json` maps each
+plugin version to the minimum supported Obsidian version; for example:
 
-For a minor release, run:
+```json
+{
+  "0.2.1": "1.5.0"
+}
+```
+
+Version keys and release tags use semver without a `v` prefix.
+
+For a patch or minor release, run the corresponding command from the repository
+root:
 
 ```bash
+corepack pnpm run release:patch
 corepack pnpm run release:minor
 ```
 
-The command runs typecheck, tests, lint, and the production build, bumps the
-version, creates the matching Git tag, pushes the commit and tag, and creates a
-GitHub Release containing `main.js`, `manifest.json`, and `styles.css`.
-The release requires an authenticated GitHub CLI with push and release
-permissions for `Kiep13/Obsidian-Location-Yaml`.
+Each command runs typecheck, tests, lint, and the production build before
+bumping the version. The version hook updates `manifest.json` and
+`versions.json`; the release script pushes the current branch and tag, then
+creates a GitHub Release containing `main.js`, `manifest.json`, and
+`styles.css`. The release requires an authenticated GitHub CLI with push and
+release permissions for `Kiep13/Obsidian-Location-Yaml`.
