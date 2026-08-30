@@ -109,8 +109,12 @@ export class LocationVaultSyncService {
   }
 
   public cancel(): void {
-    this.disposed = true;
     this.invalidateScheduledTimers();
+  }
+
+  public dispose(): void {
+    this.disposed = true;
+    this.cancel();
   }
 
   private invalidateScheduledTimers(): void {

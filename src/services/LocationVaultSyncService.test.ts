@@ -213,7 +213,7 @@ describe('LocationVaultSyncService', () => {
     failingService.cancel();
   });
 
-  it('suppresses a post-cancel error and retry from a deferred background save', async () => {
+  it('suppresses a post-dispose error and retry from a deferred background save', async () => {
     let rejectSave: (reason?: unknown) => void = () => undefined;
     const deferredSave = new Promise<void>((resolveSave, rejectSavePromise) => {
       void resolveSave;
@@ -229,7 +229,7 @@ describe('LocationVaultSyncService', () => {
     await vi.advanceTimersByTimeAsync(250);
     expect(save).toHaveBeenCalledOnce();
 
-    deferredService.cancel();
+    deferredService.dispose();
     rejectSave(new Error('deferred save failed'));
     await Promise.resolve();
     await Promise.resolve();
@@ -237,6 +237,20 @@ describe('LocationVaultSyncService', () => {
 
     expect(onError).not.toHaveBeenCalled();
     expect(save).toHaveBeenCalledOnce();
+  });
+
+  it('allows scheduling and manual sync again after a reversible cancel', async () => {
+    vi.useFakeTimers();
+    const syncNow = vi.spyOn(service, 'syncNow');
+
+    service.cancel();
+    service.schedule();
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(syncNow).toHaveBeenCalledOnce();
+
+    await service.syncNow();
+    expect(syncNow).toHaveBeenCalledTimes(2);
   });
 
   it('serializes sync runs and waits for the previous save', async () => {

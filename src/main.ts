@@ -206,7 +206,7 @@ export default class ObsidianLocationPlugin extends Plugin {
       clearTimeout(this.initialSyncRetryTimer);
       this.initialSyncRetryTimer = null;
     }
-    this.locationVaultSyncService?.cancel();
+    this.locationVaultSyncService?.dispose();
     super.onunload();
   }
 }
