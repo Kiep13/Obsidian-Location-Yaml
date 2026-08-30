@@ -92,6 +92,41 @@ describe('LocationService', () => {
     expect(await app.vault.read(file)).toContain('location: "[[Cafe]]"');
   });
 
+  it('writes a CRLF note without location through processFrontMatter', async () => {
+    coordinator.markReady();
+    const file = await app.vault.create(
+      'Notes/crlf-new-note.md',
+      '---\r\ntitle: Hello\r\n---\r\n\r\n# Hello',
+    );
+    const originalProcessFrontMatter = app.fileManager.processFrontMatter.bind(app.fileManager);
+    const processFrontMatter = vi.spyOn(app.fileManager, 'processFrontMatter').mockImplementation(
+      async (frontmatterFile, callback) => {
+        const content = await app.vault.read(frontmatterFile);
+        await app.vault.modify(frontmatterFile, content.replace(/\r\n/g, '\n'));
+        try {
+          await originalProcessFrontMatter(frontmatterFile, callback);
+        } finally {
+          const processedContent = await app.vault.read(frontmatterFile);
+          await app.vault.modify(frontmatterFile, processedContent.replace(/\n/g, '\r\n'));
+        }
+      },
+    );
+
+    await service.handleVaultCreate(file);
+    const result = await service.handleFileOpen(file);
+
+    expect(result).toEqual({
+      success: true,
+      status: 'saved',
+      locationId: 'location-cafe',
+      locationLabel: 'Cafe',
+    });
+    expect(processFrontMatter).toHaveBeenCalledTimes(1);
+    const writtenContent = await app.vault.read(file);
+    expect(writtenContent).toContain('location: "[[Cafe]]"\r\n');
+    expect(writtenContent).toContain('title: Hello\r\n');
+  });
+
   it('recognizes CRLF and supported location field formatting', async () => {
     coordinator.markReady();
     const file = new TFile('Notes/crlf-location.md', 'md');
@@ -109,6 +144,63 @@ describe('LocationService', () => {
       reason: 'already_has_location',
     });
     expect(promptLocation).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'location:',
+    'location: null',
+    'location: # comment',
+  ])('treats %s as an empty location value', async (locationLine) => {
+    coordinator.markReady();
+    const file = new TFile(`Notes/empty-location-${locationLine.length}.md`, 'md');
+    await app.vault.modify(
+      file,
+      `---\n${locationLine}\n---\n\n# Hello`,
+    );
+
+    await service.handleVaultCreate(file);
+    const result = await service.handleFileOpen(file);
+
+    expect(result).toEqual({
+      success: true,
+      status: 'saved',
+      locationId: 'location-cafe',
+      locationLabel: 'Cafe',
+    });
+    expect(await app.vault.read(file)).toContain('location: "[[Cafe]]"');
+  });
+
+  it('keeps a value before an inline comment as an existing location', async () => {
+    coordinator.markReady();
+    const file = new TFile('Notes/inline-comment-location.md', 'md');
+    await app.vault.modify(file, '---\nlocation: Office # comment\n---\n\n# Hello');
+
+    await service.handleVaultCreate(file);
+    const result = await service.handleFileOpen(file);
+
+    expect(result).toEqual({
+      success: true,
+      status: 'skipped',
+      reason: 'already_has_location',
+    });
+    expect(promptLocation).not.toHaveBeenCalled();
+  });
+
+  it('does not inspect the body after the frontmatter delimiter', async () => {
+    coordinator.markReady();
+    const file = new TFile('Notes/body-location.md', 'md');
+    await app.vault.modify(file, '---\ntitle: Hello\n---\n  location: Body text\n');
+
+    await service.handleVaultCreate(file);
+    const result = await service.handleFileOpen(file);
+
+    expect(result).toEqual({
+      success: true,
+      status: 'saved',
+      locationId: 'location-cafe',
+      locationLabel: 'Cafe',
+    });
+    expect(promptLocation).toHaveBeenCalledTimes(1);
   });
 
   it('reports a no-op when assigning the same existing location', async () => {

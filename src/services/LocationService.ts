@@ -13,31 +13,69 @@ import type { NewNoteCoordinator } from './NewNoteCoordinator';
 
 type PromptLocation = (context: LocationPromptContext) => Promise<LocationPromptResult | null>;
 
+interface ParsedYamlLocationValue {
+  quoted: boolean;
+  value: string;
+}
+
+function parseYamlLocationValue(rawValue: string): ParsedYamlLocationValue {
+  const trimmedValue = rawValue.trim();
+  if (!trimmedValue || trimmedValue.startsWith('#')) {
+    return { quoted: false, value: '' };
+  }
+
+  const quote = trimmedValue[0];
+  if (quote === '"' || quote === "'") {
+    const closingQuoteIndex = trimmedValue.lastIndexOf(quote);
+    return {
+      quoted: true,
+      value: trimmedValue.slice(1, closingQuoteIndex > 0 ? closingQuoteIndex : undefined),
+    };
+  }
+
+  return {
+    quoted: false,
+    value: trimmedValue.replace(/\s+#.*$/, '').trim(),
+  };
+}
+
+function isYamlNullValue(value: string): boolean {
+  return value === '~' || value.toLowerCase() === 'null';
+}
+
+function hasYamlLocationValue(rawValue: string): boolean {
+  const parsedValue = parseYamlLocationValue(rawValue);
+  return parsedValue.value !== '' && (parsedValue.quoted || !isYamlNullValue(parsedValue.value));
+}
+
 function hasLocationFrontmatter(content: string): boolean {
   const lines = content.split(/\r?\n/);
   if (lines[0]?.replace(/^\uFEFF/, '') !== '---') {
     return false;
   }
 
-  for (const [lineIndex, line] of lines.slice(1).entries()) {
-    if (/^\s*---\s*$/.test(line)) {
-      return false;
-    }
+  const closingDelimiterIndex = lines.slice(1).findIndex((line) => /^---\s*$/.test(line));
+  if (closingDelimiterIndex < 0) {
+    return false;
+  }
 
+  const frontmatterLines = lines.slice(1, closingDelimiterIndex + 1);
+  for (const [lineIndex, line] of frontmatterLines.entries()) {
     const match = /^[ \t]*(?:location|["']location["'])[ \t]*:(.*)$/.exec(line);
     if (match) {
-      const rawValue = match[1].trim();
-      if (rawValue !== '' && rawValue !== '""' && rawValue !== "''" && rawValue !== '~' && rawValue.toLowerCase() !== 'null') {
+      if (hasYamlLocationValue(match[1])) {
         return true;
       }
 
-      return lines.slice(lineIndex + 2).some((continuationLine) => {
-        if (/^\s*---\s*$/.test(continuationLine)) {
-          return false;
+      for (const continuationLine of frontmatterLines.slice(lineIndex + 1)) {
+        if (!continuationLine.trim()) {
+          continue;
         }
 
-        return /^\s+\S/.test(continuationLine);
-      });
+        return /^[ \t]+\S/.test(continuationLine);
+      }
+
+      return false;
     }
   }
 
@@ -169,11 +207,15 @@ export class LocationService {
       const nextLocationKey = normalizeLocationKey(location.label);
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
         const existingValue = frontmatter[LOCATION_FRONTMATTER_FIELD];
-        const existingLocationKey = typeof existingValue === 'string'
-          ? normalizeLocationKey(existingValue)
+        const parsedExistingValue = typeof existingValue === 'string'
+          ? parseYamlLocationValue(existingValue)
+          : { quoted: false, value: '' };
+        const existingLocationKey = parsedExistingValue.quoted || !isYamlNullValue(parsedExistingValue.value)
+          ? normalizeLocationKey(parsedExistingValue.value)
           : '';
         const hasExistingValue =
-          existingLocationKey !== '' || (existingValue !== undefined && existingValue !== null);
+          existingLocationKey !== '' ||
+          (typeof existingValue !== 'string' && existingValue !== undefined && existingValue !== null);
         const isSameLocation = existingLocationKey !== '' && existingLocationKey === nextLocationKey;
 
         if (hasExistingValue && (!overwriteExisting || isSameLocation)) {
