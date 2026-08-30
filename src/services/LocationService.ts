@@ -7,14 +7,41 @@ import type {
   LocationPromptResult,
   LocationWriteResult,
 } from '../types';
-import { formatLocationFrontmatterValue } from '../utils/locationNormalization';
+import { formatLocationFrontmatterValue, normalizeLocationKey } from '../utils/locationNormalization';
 import type { LocationStore } from './LocationStore';
 import type { NewNoteCoordinator } from './NewNoteCoordinator';
 
 type PromptLocation = (context: LocationPromptContext) => Promise<LocationPromptResult | null>;
 
 function hasLocationFrontmatter(content: string): boolean {
-  return /^---\n[\s\S]*?^location:\s*/m.test(content);
+  const lines = content.split(/\r?\n/);
+  if (lines[0]?.replace(/^\uFEFF/, '') !== '---') {
+    return false;
+  }
+
+  for (const [lineIndex, line] of lines.slice(1).entries()) {
+    if (/^\s*---\s*$/.test(line)) {
+      return false;
+    }
+
+    const match = /^[ \t]*(?:location|["']location["'])[ \t]*:(.*)$/.exec(line);
+    if (match) {
+      const rawValue = match[1].trim();
+      if (rawValue !== '' && rawValue !== '""' && rawValue !== "''" && rawValue !== '~' && rawValue.toLowerCase() !== 'null') {
+        return true;
+      }
+
+      return lines.slice(lineIndex + 2).some((continuationLine) => {
+        if (/^\s*---\s*$/.test(continuationLine)) {
+          return false;
+        }
+
+        return /^\s+\S/.test(continuationLine);
+      });
+    }
+  }
+
+  return false;
 }
 
 export class LocationService {
@@ -50,6 +77,11 @@ export class LocationService {
     if (hasLocationFrontmatter(content)) {
       this.newNoteCoordinator.markHandled(file.path);
       return { success: true, status: 'skipped', reason: 'already_has_location' };
+    }
+
+    const promptContext = this.store.getPromptContext(file.path);
+    if (this.store.shouldAutoApplyDefault() && promptContext.knownLocations.length === 1) {
+      return await this.applyLocation(file, promptContext.knownLocations[0], false);
     }
 
     return await this.promptAndWriteLocation(file, false);
@@ -90,7 +122,15 @@ export class LocationService {
       return { success: true, status: 'skipped', reason: 'cancelled' };
     }
 
-    const writeResult = await this.writeLocationFrontmatter(file, resolvedLocation, overwriteExisting);
+    return await this.applyLocation(file, resolvedLocation, overwriteExisting);
+  }
+
+  private async applyLocation(
+    file: TFile,
+    location: LocationDefinition,
+    overwriteExisting: boolean,
+  ): Promise<LocationActionResult> {
+    const writeResult = await this.writeLocationFrontmatter(file, location, overwriteExisting);
     if (!writeResult.success) {
       this.newNoteCoordinator.markSkipped(file.path);
       return writeResult;
@@ -101,7 +141,7 @@ export class LocationService {
       return { success: true, status: 'skipped', reason: 'already_has_location' };
     }
 
-    const committedLocation = this.store.commitLocation(resolvedLocation);
+    const committedLocation = this.store.commitLocation(location);
     await this.store.save();
     this.newNoteCoordinator.markHandled(file.path);
 
@@ -124,15 +164,29 @@ export class LocationService {
         return { success: true, wrote: false, reason: 'already_has_location' };
       }
 
+      let changed = false;
+      const nextValue = formatLocationFrontmatterValue(location.label);
+      const nextLocationKey = normalizeLocationKey(location.label);
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-        if (!overwriteExisting && frontmatter[LOCATION_FRONTMATTER_FIELD]) {
+        const existingValue = frontmatter[LOCATION_FRONTMATTER_FIELD];
+        const existingLocationKey = typeof existingValue === 'string'
+          ? normalizeLocationKey(existingValue)
+          : '';
+        const hasExistingValue =
+          existingLocationKey !== '' || (existingValue !== undefined && existingValue !== null);
+        const isSameLocation = existingLocationKey !== '' && existingLocationKey === nextLocationKey;
+
+        if (hasExistingValue && (!overwriteExisting || isSameLocation)) {
           return;
         }
 
-        frontmatter[LOCATION_FRONTMATTER_FIELD] = formatLocationFrontmatterValue(location.label);
+        frontmatter[LOCATION_FRONTMATTER_FIELD] = nextValue;
+        changed = true;
       });
 
-      return { success: true, wrote: true };
+      return changed
+        ? { success: true, wrote: true }
+        : { success: true, wrote: false, reason: 'already_has_location' };
     } catch (error) {
       return {
         success: false,
