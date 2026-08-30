@@ -4,6 +4,7 @@ import {
   dedupeLocationsByKey,
   formatLocationFrontmatterValue,
   matchesLocationQuery,
+  normalizeLocationId,
   normalizeLocationKey,
   normalizeLocationLabel,
 } from './locationNormalization';
@@ -17,8 +18,18 @@ describe('locationNormalization', () => {
     expect(normalizeLocationKey('Office')).toBe(normalizeLocationKey(' office '));
   });
 
+  it('trims and Unicode-normalizes location ids', () => {
+    expect(normalizeLocationId('  legacy-id  ')).toBe('legacy-id');
+  });
+
   it('creates stable ids from Unicode labels', () => {
     expect(createLocationId('Home')).toBe('location-home');
+  });
+
+  it('keeps lossy slug collisions distinct while retaining simple legacy ids', () => {
+    expect(createLocationId('Cafe')).toBe('location-cafe');
+    expect(createLocationId('Café')).not.toBe(createLocationId('Cafe'));
+    expect(createLocationId('City, Main Street 26')).not.toBe(createLocationId('City Main Street 26'));
   });
 
   it('formats frontmatter as a wiki link', () => {

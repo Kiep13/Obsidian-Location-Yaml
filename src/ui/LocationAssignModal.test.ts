@@ -80,7 +80,7 @@ describe('LocationAssignModal', () => {
   it('prefills the input with the default location and exposes the exact match', () => {
     modal.onOpen();
 
-    expect(modal.titleEl.textContent).toBe('Place where you create this nore');
+    expect(modal.titleEl.textContent).toBe('Place where you create this note');
 
     const input = findFirstByTag(modal.contentEl, 'input');
     expect(input?.value).toBe('Office');

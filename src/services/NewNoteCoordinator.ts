@@ -2,8 +2,6 @@ import { NEW_NOTE_PROMPT_WINDOW_MS } from '../constants';
 
 interface CandidateState {
   createdAt: number;
-  handled: boolean;
-  skipped: boolean;
 }
 
 export class NewNoteCoordinator {
@@ -24,38 +22,32 @@ export class NewNoteCoordinator {
       return;
     }
 
+    this.clearExpired();
     this.candidates.set(filePath, {
       createdAt: this.clock(),
-      handled: false,
-      skipped: false,
     });
   }
 
   public shouldPrompt(filePath: string): boolean {
     const candidate = this.candidates.get(filePath);
-    if (!candidate || candidate.handled || candidate.skipped) {
+    if (!candidate) {
       return false;
     }
 
-    return this.clock() - candidate.createdAt <= this.promptWindowMs;
+    if (this.clock() - candidate.createdAt > this.promptWindowMs) {
+      this.candidates.delete(filePath);
+      return false;
+    }
+
+    return true;
   }
 
   public markHandled(filePath: string): void {
-    const candidate = this.candidates.get(filePath);
-    if (!candidate) {
-      return;
-    }
-
-    candidate.handled = true;
+    this.candidates.delete(filePath);
   }
 
   public markSkipped(filePath: string): void {
-    const candidate = this.candidates.get(filePath);
-    if (!candidate) {
-      return;
-    }
-
-    candidate.skipped = true;
+    this.candidates.delete(filePath);
   }
 
   public handleRename(oldPath: string, newPath: string): void {
@@ -71,7 +63,7 @@ export class NewNoteCoordinator {
   public clearExpired(): void {
     const now = this.clock();
     for (const [filePath, candidate] of this.candidates.entries()) {
-      if (candidate.handled || candidate.skipped || now - candidate.createdAt > this.promptWindowMs) {
+      if (now - candidate.createdAt > this.promptWindowMs) {
         this.candidates.delete(filePath);
       }
     }
