@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "0.[0-9]+.[0-9]+"
+      - "[1-9][0-9]*.[0-9]+.[0-9]+"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Validate tag ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" != "tag" || ! "$GITHUB_REF_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Release must run only for an X.Y.Z semver tag; received: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+
+      - name: Check out tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.0.0
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Enable pnpm
+        shell: bash
+        run: corepack enable
+
+      - name: Install dependencies
+        shell: bash
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        shell: bash
+        run: corepack pnpm run typecheck
+
+      - name: Test
+        shell: bash
+        run: corepack pnpm run test
+
+      - name: Lint
+        shell: bash
+        run: corepack pnpm run lint
+
+      - name: Production build
+        shell: bash
+        run: corepack pnpm run build
+
+      - name: Validate release assets and metadata
+        shell: bash
+        run: corepack pnpm run release:validate -- "$GITHUB_REF_NAME"
+
+      - name: Package BRAT ZIP
+        shell: bash
+        env:
+          ZIP_PATH: artifacts/obsidian-location-${{ github.ref_name }}.zip
+        run: |
+          set -euo pipefail
+          corepack pnpm run release:package -- "$GITHUB_REF_NAME" "$ZIP_PATH"
+          test -s "$ZIP_PATH"
+
+          mapfile -t zip_entries < <(unzip -Z1 "$ZIP_PATH")
+          expected_entries=(main.js manifest.json styles.css)
+          if [[ "${#zip_entries[@]}" -ne "${#expected_entries[@]}" ]] || [[ "${zip_entries[*]}" != "${expected_entries[*]}" ]]; then
+            printf 'Unexpected ZIP root layout:\n%s\n' "${zip_entries[*]}" >&2
+            exit 1
+          fi
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          ZIP_PATH: artifacts/obsidian-location-${{ github.ref_name }}.zip
+        run: |
+          set -euo pipefail
+          release_assets=(main.js manifest.json styles.css "$ZIP_PATH")
+
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${release_assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${release_assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --generate-notes \
+              --title "$GITHUB_REF_NAME"
+          fi
