@@ -61,7 +61,7 @@ function hasLocationFrontmatter(content: string): boolean {
 
   const frontmatterLines = lines.slice(1, closingDelimiterIndex + 1);
   for (const [lineIndex, line] of frontmatterLines.entries()) {
-    const match = /^[ \t]*(?:location|["']location["'])[ \t]*:(.*)$/.exec(line);
+    const match = /^(?:location|["']location["'])[ \t]*:(.*)$/.exec(line);
     if (match) {
       if (hasYamlLocationValue(match[1])) {
         return true;
