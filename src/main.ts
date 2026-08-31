@@ -59,7 +59,17 @@ export default class ObsidianLocationPlugin extends Plugin {
     });
 
     this.registerEvent(
-      this.app.metadataCache.on('changed', () => {
+      this.app.metadataCache.on('changed', (file) => {
+        if (file) {
+          this.locationVaultSyncService.markMetadataChanged(file.path);
+        }
+        this.locationVaultSyncService.schedule();
+      }),
+    );
+
+    this.registerEvent(
+      this.app.vault.on('modify', (file) => {
+        this.locationVaultSyncService.markVaultFileModified(file.path);
         this.locationVaultSyncService.schedule();
       }),
     );

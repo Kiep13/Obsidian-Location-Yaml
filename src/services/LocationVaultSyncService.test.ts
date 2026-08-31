@@ -113,6 +113,33 @@ describe('LocationVaultSyncService', () => {
     expect(store.getTopRecentLocations()[0]?.label).toBe('Gym');
   });
 
+  it('waits for metadata changed after a vault modification before reconciling', async () => {
+    const file = await app.vault.create('Notes/one.md', '---\nlocation: Cafe\n---\n');
+    await service.syncNow();
+    await app.vault.modify(file, '---\nlocation: Gym\n---\n');
+    service.markVaultFileModified(file.path);
+
+    const pendingSync = service.syncNow();
+    await Promise.resolve();
+    expect(store.getTopRecentLocations()[0]?.label).toBe('Cafe');
+
+    service.markMetadataChanged(file.path);
+    await pendingSync;
+
+    expect(store.getTopRecentLocations()[0]?.label).toBe('Gym');
+  });
+
+  it('does not treat an unresolved metadata cache as an empty vault', async () => {
+    await app.vault.create('Notes/one.md', '---\nlocation: Cafe\n---\n');
+    await service.syncNow();
+    const getFileCache = vi.spyOn(app.metadataCache, 'getFileCache').mockReturnValue(null);
+
+    await service.syncNow();
+
+    expect(store.getTopRecentLocations()[0]?.label).toBe('Cafe');
+    expect(getFileCache).toHaveBeenCalled();
+  });
+
   it('persists dirty state on the next sync after a failed save', async () => {
     await app.vault.create('Notes/one.md', '---\nlocation: Cafe\n---\n');
     const originalSave = MemoryAdapter.prototype.save.bind(adapter);

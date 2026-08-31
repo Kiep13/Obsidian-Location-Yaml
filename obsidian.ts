@@ -252,6 +252,7 @@ export class Vault {
   private readonly emitter = new EventEmitter();
 
   public on(eventName: 'create', callback: (file: TFile) => void): () => void;
+  public on(eventName: 'modify', callback: (file: TFile) => void): () => void;
   public on(eventName: 'rename', callback: (file: TFile, oldPath: string) => void): () => void;
   public on(eventName: 'delete', callback: (file: TFile) => void): () => void;
   public on(eventName: string, callback: (...values: any[]) => void): () => void {
@@ -271,6 +272,7 @@ export class Vault {
 
   public async modify(file: TFile, content: string): Promise<void> {
     this.files.set(file.path, content);
+    this.emitter.emit('modify', file);
   }
 
   public getMarkdownFiles(): TFile[] {
@@ -358,7 +360,7 @@ export class MetadataCache {
   constructor(private readonly vault: Vault) {}
 
   public on(eventName: 'resolved', callback: () => void): () => void;
-  public on(eventName: 'changed', callback: (...values: unknown[]) => void): () => void;
+  public on(eventName: 'changed', callback: (file: TFile, ...values: unknown[]) => void): () => void;
   public on(eventName: string, callback: (...values: any[]) => void): () => void {
     return this.emitter.on(eventName, callback);
   }
