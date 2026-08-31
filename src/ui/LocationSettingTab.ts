@@ -1,12 +1,13 @@
-import { PluginSettingTab, Setting, type App } from 'obsidian';
+import { PluginSettingTab, Setting, type App, type Plugin } from 'obsidian';
 import type { LocationStore } from '../services/LocationStore';
 
 export class LocationSettingTab extends PluginSettingTab {
   constructor(
     app: App,
+    plugin: Plugin,
     private readonly store: LocationStore,
   ) {
-    super(app, store as unknown);
+    super(app, plugin);
   }
 
   public override display(): void {

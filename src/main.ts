@@ -108,7 +108,7 @@ export default class ObsidianLocationPlugin extends Plugin {
       callback: () => this.openStatisticsModal(),
     });
 
-    this.addSettingTab(new LocationSettingTab(this.app, this.locationStore));
+    this.addSettingTab(new LocationSettingTab(this.app, this, this.locationStore));
   }
 
   private async handleVaultCreate(file: TFile): Promise<void> {

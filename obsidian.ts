@@ -544,14 +544,18 @@ export class PluginSettingTab {
 
   constructor(
     public readonly app: App,
-    protected readonly plugin: unknown,
-  ) {}
+    public readonly plugin: Plugin,
+  ) {
+    void plugin.manifest.name;
+  }
 
   public display(): void {}
 }
 
 export class Plugin {
   public readonly app = new App();
+  public readonly manifest = { name: 'Obsidian Location' };
+  public readonly settingTabs: PluginSettingTab[] = [];
 
   private data: unknown = null;
   private readonly registeredEvents: Array<() => void> = [];
@@ -581,7 +585,7 @@ export class Plugin {
   }
 
   public addSettingTab(tab: PluginSettingTab): void {
-    void tab;
+    this.settingTabs.push(tab);
   }
 
   public registerEvent(disposer: () => void): void {
