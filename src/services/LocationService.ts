@@ -12,6 +12,7 @@ import type { LocationStore } from './LocationStore';
 import type { NewNoteCoordinator } from './NewNoteCoordinator';
 
 type PromptLocation = (context: LocationPromptContext) => Promise<LocationPromptResult | null>;
+export type SyncBeforePrompt = () => Promise<void>;
 
 interface ParsedYamlLocationValue {
   quoted: boolean;
@@ -92,6 +93,7 @@ export class LocationService {
     private readonly app: App,
     private readonly store: LocationStore,
     private readonly newNoteCoordinator: NewNoteCoordinator,
+    private readonly syncBeforePrompt: SyncBeforePrompt,
     private readonly promptLocation: PromptLocation,
   ) {}
 
@@ -122,12 +124,12 @@ export class LocationService {
       return { success: true, status: 'skipped', reason: 'already_has_location' };
     }
 
-    const promptContext = this.store.getPromptContext(file.path);
+    const promptContext = await this.getPromptContext(file.path);
     if (this.store.shouldAutoApplyDefault() && promptContext.knownLocations.length === 1) {
       return await this.applyLocation(file, promptContext.knownLocations[0], false);
     }
 
-    return await this.promptAndWriteLocation(file, false);
+    return await this.promptAndWriteLocation(file, false, promptContext);
   }
 
   public async assignActiveFileLocation(): Promise<LocationActionResult> {
@@ -150,9 +152,10 @@ export class LocationService {
   private async promptAndWriteLocation(
     file: TFile,
     overwriteExisting: boolean,
+    promptContext?: LocationPromptContext,
   ): Promise<LocationActionResult> {
-    const promptContext = this.store.getPromptContext(file.path);
-    const selectedLocation = await this.promptLocation(promptContext);
+    const context = promptContext ?? await this.getPromptContext(file.path);
+    const selectedLocation = await this.promptLocation(context);
 
     if (!selectedLocation) {
       this.newNoteCoordinator.markSkipped(file.path);
@@ -166,6 +169,16 @@ export class LocationService {
     }
 
     return await this.applyLocation(file, resolvedLocation, overwriteExisting);
+  }
+
+  private async getPromptContext(filePath: string): Promise<LocationPromptContext> {
+    try {
+      await this.syncBeforePrompt();
+    } catch {
+      // The store retains its last known in-memory state when a fresh sync fails.
+    }
+
+    return this.store.getPromptContext(filePath);
   }
 
   private async applyLocation(
