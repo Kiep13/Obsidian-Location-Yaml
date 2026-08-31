@@ -60,6 +60,20 @@ The ZIP must contain exactly `main.js`, `manifest.json`, and `styles.css` at its
 root. BRAT installation consumes the three matching GitHub Release assets, not a
 source checkout and not a bundle hidden under a nested directory.
 
+## UI and freshness regression checks
+
+The unit suite must cover the complete picker sequence: open with a default,
+empty input showing recent items, partial input such as `Brat`, and an exact
+input such as `Bratislava`. Assert that the suggestion container is not hidden
+when it has results. A CSS rule that leaves `.location-modal-suggestions` at
+`display: none` is a release blocker.
+
+The service suite must cover a note changing from one location to another. The
+test must model `vault.modify` followed by `metadataCache.changed`; a mock that
+re-parses the live vault on every `getFileCache` call is insufficient by itself.
+Also test that a `null` metadata cache does not erase the previous usage snapshot
+and that pre-prompt synchronization occurs before the prompt callback.
+
 ## Review checklist
 
 - The test covers the reported failure, not merely the happy path.

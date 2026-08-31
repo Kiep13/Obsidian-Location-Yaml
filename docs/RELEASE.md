@@ -68,5 +68,9 @@ installable.
 5. Wait for the workflow and verify the published asset names and sizes.
 6. Test installation/update in BRAT and inspect Obsidian DevTools on startup.
 
+For UI or metadata-cache fixes, manually open the picker after changing a note's
+`location` and verify that the current location appears, suggestions are visible
+under the input, and typing narrows the list without requiring a plugin reload.
+
 Do not force-push release tags, publish from an uncommitted working tree, or
 assume a successful build means the Release assets are present.

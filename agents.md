@@ -24,6 +24,19 @@ argument. Pass `LocationStore` separately. Never use a cast to make a store or
 service look like an Obsidian API object; the real runtime may read required
 fields such as `plugin.manifest.name` during construction.
 
+## Picker and freshness rule
+
+The location picker is a custom `Modal`. Its suggestion container must be visible
+when `hidden=false`; do not add a permanent `display: none` rule. The list is
+rendered on open and recalculated on every input event, keeping the existing
+recent/exact-match ranking, five-item limit, keyboard navigation, and mouse
+selection behavior.
+
+Before building a prompt context, refresh vault-derived usage. A vault
+modification is not considered synchronized until its `metadataCache.changed`
+event has arrived. An unresolved (`null`) file cache must leave the last known
+usage untouched rather than being interpreted as an empty location field.
+
 ## Required checks
 
 From the repository root, run:

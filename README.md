@@ -62,7 +62,15 @@ The plugin persists its state in `data.json`: `settings` and location
 definitions in `locations` are persisted plugin state, while `usage` is derived
 from the `location` values in Markdown frontmatter. The plugin reconciles that
 usage from scalar and string-array values and does not rewrite existing notes
-during synchronization.
+during synchronization. A picker open first refreshes this vault-derived usage;
+after a note modification, synchronization waits for the corresponding metadata
+cache update. Saved location definitions may remain as historical suggestions,
+while recent ordering reflects the current notes.
+
+The picker is a custom modal with a visible suggestion list. It shows recent
+locations when the field is empty and recalculates up to five normalized substring
+matches on every keystroke. `ArrowUp`/`ArrowDown`, `Enter`, `Escape`, and mouse
+selection are supported.
 
 ## Commands
 
