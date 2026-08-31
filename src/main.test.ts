@@ -21,6 +21,15 @@ describe('ObsidianLocationPlugin', () => {
     await expect(plugin.onload()).resolves.toBeUndefined();
   });
 
+  it('passes the plugin instance to the settings tab', async () => {
+    const plugin = new ObsidianLocationPlugin();
+
+    await plugin.onload();
+
+    expect(plugin.settingTabs).toHaveLength(1);
+    expect(plugin.settingTabs[0]?.plugin).toBe(plugin);
+  });
+
   it('synchronizes before opening the statistics modal', async () => {
     const syncNow = vi.spyOn(LocationVaultSyncService.prototype, 'syncNow').mockResolvedValue();
     const open = vi.spyOn(LocationStatisticsModal.prototype, 'open').mockImplementation(() => undefined);
