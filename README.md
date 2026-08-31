@@ -93,6 +93,10 @@ corepack pnpm lint
 
 ## Release
 
+Before every release, add a user-visible summary to
+`docs/releases/<X.Y.Z>.md`. Use the same summary as the GitHub Release body;
+the release process is documented in [`docs/RELEASE.md`](docs/RELEASE.md).
+
 This repository publishes tagged GitHub Releases for BRAT through GitHub
 Actions. The plugin version in `package.json` and `manifest.json` must match.
 `versions.json` maps each plugin version to the minimum supported Obsidian

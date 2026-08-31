@@ -52,4 +52,8 @@ corepack pnpm run release:validate -- <X.Y.Z>
 
 Before merging or publishing, confirm that the generated root files `main.js`,
 `manifest.json`, and `styles.css` are non-empty and that package/manifest/version
-metadata agree. Read the release document before creating a tag.
+metadata agree. Before creating a tag, add the version-specific
+`docs/releases/<X.Y.Z>.md` notes file with the exact version/date format and at
+least one concrete user-visible change. The release workflow publishes that
+file as the GitHub Release body; verify the body and assets after it completes.
+Read the release document before creating a tag.

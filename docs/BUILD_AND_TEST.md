@@ -45,10 +45,10 @@ After a production build, verify the release boundary:
 test -s main.js
 test -s manifest.json
 test -s styles.css
-corepack pnpm run release:validate -- 0.2.2
+corepack pnpm run release:validate -- 0.2.4
 ```
 
-Replace `0.2.2` with the version under test. Validation checks the package and
+Replace `0.2.4` with the version under test. Validation checks the package and
 manifest versions, manifest id, and non-empty root assets. For a release package:
 
 ```bash
@@ -59,6 +59,11 @@ unzip -Z1 artifacts/obsidian-location-<X.Y.Z>.zip
 The ZIP must contain exactly `main.js`, `manifest.json`, and `styles.css` at its
 root. BRAT installation consumes the three matching GitHub Release assets, not a
 source checkout and not a bundle hidden under a nested directory.
+
+For a release, also verify that `docs/releases/<X.Y.Z>.md` exists, is non-empty,
+uses the exact `# Release X.Y.Z` heading and `Date: YYYY-MM-DD` line, and has at
+least one concrete user-visible change. The file must be present in the tagged
+commit and its contents must be used as the GitHub Release body.
 
 ## UI and freshness regression checks
 
@@ -80,5 +85,6 @@ and that pre-prompt synchronization occurs before the prompt callback.
 - Obsidian API objects receive the correct runtime object, without unsafe casts.
 - The production bundle was rebuilt after source changes.
 - `manifest.json`, `package.json`, and `versions.json` are synchronized.
+- `docs/releases/<X.Y.Z>.md` has the exact version/date and a non-empty user-facing change.
 - Root assets are non-empty and the ZIP layout is correct.
 - `git diff --check` is clean and no unrelated generated or local files are staged.

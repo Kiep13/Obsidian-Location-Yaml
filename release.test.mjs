@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { URL } from "node:url";
@@ -12,6 +18,7 @@ function createFixture({
   manifestId = "obsidian-location",
   manifestVersion = packageVersion,
   emptyAsset,
+  releaseNotes = `# Release ${packageVersion}\n\nDate: 2026-08-31\n\n## Fixed\n\n- A user-visible fix.\n`,
 } = {}) {
   const rootDirectory = mkdtempSync(
     join(tmpdir(), "obsidian-location-release-"),
@@ -29,6 +36,14 @@ function createFixture({
     writeFileSync(
       join(rootDirectory, asset),
       asset === emptyAsset ? "" : asset,
+    );
+  }
+  if (releaseNotes !== null) {
+    const releaseNotesDirectory = join(rootDirectory, "docs", "releases");
+    mkdirSync(releaseNotesDirectory, { recursive: true });
+    writeFileSync(
+      join(releaseNotesDirectory, `${packageVersion}.md`),
+      releaseNotes,
     );
   }
   return rootDirectory;
@@ -53,10 +68,12 @@ function readReleaseTriggerPatterns() {
 }
 
 function matchesReleaseTrigger(tag, patterns) {
-  const regexSource = patterns
-    .map((pattern) => pattern.replaceAll(".", "\\."))
-    .join("|");
-  return new RegExp(`^(?:${regexSource})$`).test(tag);
+  return patterns.some((pattern) => {
+    const regexSource = pattern
+      .replace(/[.+?^${}()|\\]/g, "\\$&")
+      .replaceAll("*", ".*");
+    return new RegExp(`^${regexSource}$`).test(tag);
+  });
 }
 
 afterEach(() => {
@@ -70,8 +87,8 @@ describe("release validation", () => {
     const triggerPatterns = readReleaseTriggerPatterns();
 
     expect(triggerPatterns).toEqual([
-      "0.[0-9]+.[0-9]+",
-      "[1-9][0-9]*.[0-9]+.[0-9]+",
+      "0.[0-9]*.[0-9]*",
+      "[1-9]*.[0-9]*.[0-9]*",
     ]);
 
     for (const version of ["0.2.2", "10.2.3"]) {
@@ -83,6 +100,7 @@ describe("release validation", () => {
     }
 
     expect(matchesReleaseTrigger("01.2.3", triggerPatterns)).toBe(false);
+    expect(matchesReleaseTrigger("0.2", triggerPatterns)).toBe(false);
     const rootDirectory = createFixture({ packageVersion: "01.2.3" });
     expect(() =>
       validateRelease({ rootDirectory, expectedVersion: "01.2.3" }),
@@ -98,6 +116,45 @@ describe("release validation", () => {
       version: "1.2.3",
       manifestId: "obsidian-location",
     });
+  });
+
+  it("requires version-specific release notes", () => {
+    const rootDirectory = createFixture({ releaseNotes: null });
+
+    expect(() =>
+      validateRelease({ rootDirectory, expectedVersion: "1.2.3" }),
+    ).toThrow("Release asset is missing or empty");
+  });
+
+  it.each([
+    ["wrong heading", "# 1.2.3\n\nDate: 2026-08-31\n\n- Fix\n", "heading"],
+    ["missing date", "# Release 1.2.3\n\n- Fix\n", "date"],
+    [
+      "invalid date",
+      "# Release 1.2.3\n\nDate: 2026-02-30\n\n- A concrete fix.\n",
+      "date",
+    ],
+    [
+      "missing change",
+      "# Release 1.2.3\n\nDate: 2026-08-31\n",
+      "concrete change",
+    ],
+    [
+      "placeholder change",
+      "# Release 1.2.3\n\nDate: 2026-08-31\n\n- update\n",
+      "concrete change",
+    ],
+    [
+      "template change",
+      "# Release 1.2.3\n\nDate: 2026-08-31\n\n- Documentation-only user-facing change.\n",
+      "concrete change",
+    ],
+  ])("rejects release notes with %s", (_name, releaseNotes, message) => {
+    const rootDirectory = createFixture({ releaseNotes });
+
+    expect(() =>
+      validateRelease({ rootDirectory, expectedVersion: "1.2.3" }),
+    ).toThrow(message);
   });
 
   it("rejects a manifest id that does not identify this plugin", () => {
@@ -122,5 +179,15 @@ describe("release validation", () => {
     expect(() =>
       validateRelease({ rootDirectory, expectedVersion: "1.2.4" }),
     ).toThrow("does not match release tag");
+  });
+
+  it("requires the workflow to publish authored release notes", () => {
+    const workflow = readFileSync(
+      new URL("./.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+
+    expect(workflow).toContain('--notes-file "$RELEASE_NOTES_PATH"');
+    expect(workflow).not.toContain("--generate-notes");
   });
 });

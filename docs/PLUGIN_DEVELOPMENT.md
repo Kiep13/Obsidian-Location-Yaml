@@ -60,6 +60,19 @@ repository the relevant precondition includes plugin metadata such as
 from current usage; saved definitions remain available as known locations. This
 separation must not be silently replaced with destructive pruning.
 
+The current usage `count` means the number of current Markdown notes containing
+the location, not the number of picker selections. For an empty query, current
+count is the primary ordering signal and `lastUsedAt` is only a tie-breaker. For
+typed input, the score prefers exact matches, earlier substring positions, and
+shorter labels, then adds a fixed boost to locations in the current top-five
+usage list. That usage boost can therefore override a small text-relevance
+difference; this is the current behavior, not a claim that the ranking is a
+pure text-first sort. A count shown beside a suggestion must be labeled as
+notes (for example, `3 notes`) so users are not told that it represents recent
+usage.
+Do not add a rolling 14-day score until the data model records reliable
+per-event timestamps; the frontmatter snapshot alone cannot reconstruct them.
+
 ## Picker UX contract
 
 `LocationAssignModal` is a custom Obsidian `Modal`, not `SuggestModal`. It shows
