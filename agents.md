@@ -1,44 +1,42 @@
-# Obsidian Location
+# Obsidian Location: Agent Instructions
 
-## Purpose
+Read this file before changing the repository. The detailed procedures are split
+by concern:
 
-Capture the location where a new note is created and store it in vault frontmatter plus plugin data.
+- `docs/PLUGIN_DEVELOPMENT.md` — architecture, API contracts, and runtime safety
+- `docs/BUILD_AND_TEST.md` — dependency, test, lint, build, and artifact gates
+- `docs/RELEASE.md` — versioning, BRAT assets, tags, and GitHub Actions
+- `docs/PLUGIN_WORKSPACE.md` — relationship to the parent multi-repository workspace
 
-## Architecture
+## Scope and ownership
 
-- `src/main.ts` wires services, commands, and settings
-- `src/services/` holds location state, note capture, and frontmatter persistence
-- `src/ui/` holds the picker modal and settings tab
-- `src/utils/` holds pure normalization and ranking helpers
+- `src/main.ts` owns lifecycle wiring, commands, and settings registration.
+- `src/services/` owns vault synchronization and persisted location state.
+- `src/ui/` owns the picker, statistics modal, and settings tab.
+- `src/utils/` contains pure normalization and ranking helpers.
+- Keep changes inside the smallest relevant boundary and add a focused regression
+  test for every bug fix.
 
-## Boundaries
+## Non-negotiable runtime rule
 
-- UI work stays in `src/ui/` or `src/main.ts`
-- Vault/data logic stays in `src/services/`
-- Pure string and list helpers stay in `src/utils/`
+`PluginSettingTab` must receive the actual `Plugin` instance as its second
+argument. Pass `LocationStore` separately. Never use a cast to make a store or
+service look like an Obsidian API object; the real runtime may read required
+fields such as `plugin.manifest.name` during construction.
 
-## Commands
+## Required checks
 
-- `corepack pnpm dev`
-- `corepack pnpm build`
-- `corepack pnpm test`
-- `corepack pnpm typecheck`
-- `corepack pnpm lint`
+From the repository root, run:
 
-## Files
+```bash
+corepack pnpm install --frozen-lockfile
+corepack pnpm run typecheck
+corepack pnpm run test
+corepack pnpm run lint
+corepack pnpm run build
+corepack pnpm run release:validate -- <X.Y.Z>
+```
 
-- `manifest.json`
-- `install.sh`
-- `src/main.ts`
-- `src/services/locationStore.ts`
-- `src/services/noteLocationService.ts`
-- `src/services/locationFrontmatterService.ts`
-- `src/ui/locationPickerModal.ts`
-- `src/ui/locationSettingTab.ts`
-
-## Risks
-
-- New-note events can race with template/frontmatter writes
-- Frontmatter must not be overwritten when the note already has a location
-- Location normalization must dedupe case and wiki-link variants
-- Data file and frontmatter must stay consistent
+Before merging or publishing, confirm that the generated root files `main.js`,
+`manifest.json`, and `styles.css` are non-empty and that package/manifest/version
+metadata agree. Read the release document before creating a tag.
