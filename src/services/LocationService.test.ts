@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { App, TFile } from 'obsidian';
 import { LocationStore } from './LocationStore';
 import { NewNoteCoordinator } from './NewNoteCoordinator';
-import { LocationService } from './LocationService';
+import { LocationService, type SyncBeforePrompt } from './LocationService';
 import { LocationVaultSyncService } from './LocationVaultSyncService';
 import type { LocationData, LocationDataAdapter, LocationPromptContext, LocationPromptResult } from '../types';
 
@@ -54,6 +54,7 @@ describe('LocationService', () => {
   let adapter: MemoryAdapter;
   let store: LocationStore;
   let coordinator: NewNoteCoordinator;
+  let syncBeforePrompt: Mock<SyncBeforePrompt>;
   let promptLocation: Mock<PromptLocation>;
   let service: LocationService;
 
@@ -63,11 +64,71 @@ describe('LocationService', () => {
     store = new LocationStore(adapter, () => new Date('2026-06-21T10:00:00Z'));
     await store.load();
     coordinator = new NewNoteCoordinator(() => 0, 10 * 60 * 1000);
+    syncBeforePrompt = vi.fn<SyncBeforePrompt>(async () => undefined);
     promptLocation = vi.fn<PromptLocation>(async (context: LocationPromptContext) => {
       void context;
       return { label: 'Cafe' };
     });
-    service = new LocationService(app, store, coordinator, promptLocation);
+    service = new LocationService(app, store, coordinator, syncBeforePrompt, promptLocation);
+  });
+
+  it('synchronizes before opening the automatic new-note picker', async () => {
+    coordinator.markReady();
+    const events: string[] = [];
+    syncBeforePrompt.mockImplementation(async () => {
+      events.push('sync');
+    });
+    promptLocation.mockImplementation(async () => {
+      events.push('prompt');
+      return null;
+    });
+    const file = await app.vault.create('Notes/new-note.md', '# Hello');
+
+    await service.handleVaultCreate(file);
+    await service.handleFileOpen(file);
+
+    expect(events).toEqual(['sync', 'prompt']);
+    expect(syncBeforePrompt).toHaveBeenCalledOnce();
+    expect(promptLocation).toHaveBeenCalledOnce();
+  });
+
+  it('synchronizes frontmatter changes before building a manual picker context', async () => {
+    const sourceFile = await app.vault.create(
+      'Notes/source.md',
+      '---\nlocation: Cafe\n---\n',
+    );
+    const targetFile = await app.vault.create('Notes/target.md', '# Target');
+    const syncService = new LocationVaultSyncService(app, store);
+    syncBeforePrompt.mockImplementation(() => syncService.syncNow());
+    await syncService.syncNow();
+
+    await app.vault.modify(
+      sourceFile,
+      '---\nlocation: Gym\n---\n',
+    );
+    app.workspace.setActiveFile(targetFile);
+
+    await service.assignActiveFileLocation();
+
+    const promptContext = promptLocation.mock.calls[0]?.[0];
+    expect(promptContext?.recentLocations.map((location) => location.label)).toEqual(['Gym']);
+    expect(promptContext?.knownLocations.map((location) => location.label)).toContain('Gym');
+    expect(promptContext?.recentLocations.map((location) => location.label)).not.toContain('Cafe');
+    expect(syncBeforePrompt).toHaveBeenCalledOnce();
+  });
+
+  it('opens the picker with the last known context when pre-prompt sync fails', async () => {
+    store.reconcileVaultUsage([{ label: 'Cafe', count: 1 }]);
+    await store.save();
+    syncBeforePrompt.mockRejectedValue(new Error('transient sync failure'));
+    const file = await app.vault.create('Notes/target.md', '# Target');
+    app.workspace.setActiveFile(file);
+
+    await service.assignActiveFileLocation();
+
+    expect(promptLocation).toHaveBeenCalledOnce();
+    expect(promptLocation.mock.calls[0]?.[0].recentLocations.map((location) => location.label))
+      .toEqual(['Cafe']);
   });
 
   it('writes frontmatter when a new markdown file opens after create', async () => {

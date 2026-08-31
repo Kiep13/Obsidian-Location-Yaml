@@ -33,18 +33,19 @@ export default class ObsidianLocationPlugin extends Plugin {
     this.locationStore = new LocationStore(dataAdapter);
     await this.locationStore.load();
     this.newNoteCoordinator = new NewNoteCoordinator();
-    this.locationService = new LocationService(
-      this.app,
-      this.locationStore,
-      this.newNoteCoordinator,
-      async (context) => await promptForLocation(this.app, context),
-    );
     this.locationVaultSyncService = new LocationVaultSyncService(
       this.app,
       this.locationStore,
       () => {
         new Notice('Unable to synchronize locations from the vault.', 6000);
       },
+    );
+    this.locationService = new LocationService(
+      this.app,
+      this.locationStore,
+      this.newNoteCoordinator,
+      async () => await this.locationVaultSyncService.syncNow(),
+      async (context) => await promptForLocation(this.app, context),
     );
 
     this.registerEvent(
