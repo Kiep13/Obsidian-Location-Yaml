@@ -1,7 +1,7 @@
 {
 	"id": "obsidian-location",
 	"name": "Obsidian Location",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"minAppVersion": "1.5.0",
 	"description": "Capture and store the location where new notes are created.",
 	"author": "Codex",
