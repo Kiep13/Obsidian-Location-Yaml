@@ -7,21 +7,32 @@ import type { LocationStore } from './LocationStore';
 const SYNC_DEBOUNCE_MS = 250;
 const SYNC_RETRY_BASE_MS = 500;
 const MAX_BACKGROUND_RETRIES = 3;
+const METADATA_REFRESH_TIMEOUT_MS = 5000;
 
 export type SyncErrorHandler = (error: unknown) => void;
+
+interface MetadataWaiter {
+  resolve: (fresh: boolean) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
 
 function getRawLocationValues(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [value];
 }
 
-function collectLocationUsage(app: App): VaultLocationUsage[] {
+function collectLocationUsage(app: App): VaultLocationUsage[] | null {
   const usageByKey = new Map<string, VaultLocationUsage>();
   const markdownFiles = [...app.vault.getMarkdownFiles()].sort((left, right) =>
     left.path.localeCompare(right.path),
   );
 
   for (const file of markdownFiles) {
-    const rawValue = app.metadataCache.getFileCache(file)?.frontmatter?.[LOCATION_FRONTMATTER_FIELD];
+    const fileCache = app.metadataCache.getFileCache(file);
+    if (fileCache === null) {
+      return null;
+    }
+
+    const rawValue = fileCache.frontmatter?.[LOCATION_FRONTMATTER_FIELD];
     const locationKeysInFile = new Set<string>();
 
     for (const value of getRawLocationValues(rawValue)) {
@@ -56,6 +67,8 @@ export class LocationVaultSyncService {
   private retryAttempt = 0;
   private persistencePending = false;
   private disposed = false;
+  private readonly pendingMetadataPaths = new Set<string>();
+  private readonly metadataWaiters = new Map<string, Set<MetadataWaiter>>();
 
   constructor(
     private readonly app: App,
@@ -75,7 +88,15 @@ export class LocationVaultSyncService {
 
   private enqueueSync(): Promise<void> {
     const syncTask = this.syncQueue.then(async () => {
+      if (!await this.waitForPendingMetadata() || this.disposed) {
+        return;
+      }
+
       const entries = collectLocationUsage(this.app);
+      if (entries === null) {
+        return;
+      }
+
       if (this.store.reconcileVaultUsage(entries) || this.store.hasUnsavedChanges()) {
         this.persistencePending = true;
       }
@@ -115,6 +136,22 @@ export class LocationVaultSyncService {
   public dispose(): void {
     this.disposed = true;
     this.cancel();
+    this.resolveAllMetadataWaiters(false);
+  }
+
+  public markVaultFileModified(filePath: string): void {
+    if (!this.disposed && filePath) {
+      this.pendingMetadataPaths.add(filePath);
+    }
+  }
+
+  public markMetadataChanged(filePath: string): void {
+    if (!filePath) {
+      return;
+    }
+
+    this.pendingMetadataPaths.delete(filePath);
+    this.resolveMetadataWaiters(filePath, true);
   }
 
   private invalidateScheduledTimers(): void {
@@ -132,8 +169,61 @@ export class LocationVaultSyncService {
     this.retryAttempt = 0;
   }
 
-  public static collectLocationUsage(app: App): VaultLocationUsage[] {
+  public static collectLocationUsage(app: App): VaultLocationUsage[] | null {
     return collectLocationUsage(app);
+  }
+
+  private waitForPendingMetadata(): Promise<boolean> {
+    const pendingPaths = [...this.pendingMetadataPaths];
+    if (pendingPaths.length === 0) {
+      return Promise.resolve(true);
+    }
+
+    return Promise.all(pendingPaths.map((filePath) => this.waitForMetadata(filePath)))
+      .then((results) => results.every(Boolean));
+  }
+
+  private waitForMetadata(filePath: string): Promise<boolean> {
+    if (!this.pendingMetadataPaths.has(filePath)) {
+      return Promise.resolve(true);
+    }
+
+    return new Promise((resolve) => {
+      const waiter: MetadataWaiter = {
+        resolve: (fresh) => {
+          clearTimeout(waiter.timeout);
+          const waiters = this.metadataWaiters.get(filePath);
+          waiters?.delete(waiter);
+          if (waiters?.size === 0) {
+            this.metadataWaiters.delete(filePath);
+          }
+          resolve(fresh);
+        },
+        timeout: setTimeout(() => {
+          waiter.resolve(false);
+        }, METADATA_REFRESH_TIMEOUT_MS),
+      };
+      const waiters = this.metadataWaiters.get(filePath) ?? new Set<MetadataWaiter>();
+      waiters.add(waiter);
+      this.metadataWaiters.set(filePath, waiters);
+
+      if (!this.pendingMetadataPaths.has(filePath)) {
+        waiter.resolve(true);
+      }
+    });
+  }
+
+  private resolveMetadataWaiters(filePath: string, fresh: boolean): void {
+    for (const waiter of [...(this.metadataWaiters.get(filePath) ?? [])]) {
+      waiter.resolve(fresh);
+    }
+  }
+
+  private resolveAllMetadataWaiters(fresh: boolean): void {
+    for (const filePath of this.metadataWaiters.keys()) {
+      this.resolveMetadataWaiters(filePath, fresh);
+    }
+    this.metadataWaiters.clear();
   }
 
   private reportError(error: unknown): void {
