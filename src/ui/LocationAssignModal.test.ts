@@ -86,7 +86,47 @@ describe('LocationAssignModal', () => {
     expect(input?.value).toBe('Office');
 
     const suggestions = findFirstByClass(modal.contentEl, 'location-modal-suggestions');
+    expect(suggestions?.hidden).toBe(false);
     expect(suggestions?.children.map((child: any) => child.textContent)).toEqual(['Office']);
+  });
+
+  it('updates visible suggestions from empty input to partial and exact matches', () => {
+    context = {
+      ...context,
+      defaultLocation: null,
+      recentLocations: [
+        { id: 'location-cafe', label: 'Cafe' },
+        { id: 'location-home', label: 'Home' },
+      ],
+      knownLocations: [
+        { id: 'location-office', label: 'Office' },
+        { id: 'location-home', label: 'Home' },
+        { id: 'location-cafe', label: 'Cafe' },
+        { id: 'location-gym', label: 'Gym' },
+        { id: 'location-bratislava', label: 'Bratislava' },
+      ],
+    };
+    modal = new LocationAssignModal(app, context, resolveSelection);
+    modal.onOpen();
+
+    const input = findFirstByTag(modal.contentEl, 'input');
+    const suggestions = findFirstByClass(modal.contentEl, 'location-modal-suggestions');
+    const renderedLabels = () => suggestions?.children.map((child: any) => child.textContent);
+
+    input.value = '';
+    input.dispatchEvent({ type: 'input' });
+    expect(suggestions?.hidden).toBe(false);
+    expect(renderedLabels()).toEqual(['Cafe', 'Home', 'Bratislava', 'Gym', 'Office']);
+
+    input.value = 'Brat';
+    input.dispatchEvent({ type: 'input' });
+    expect(suggestions?.hidden).toBe(false);
+    expect(renderedLabels()).toEqual(['Bratislava']);
+
+    input.value = 'Bratislava';
+    input.dispatchEvent({ type: 'input' });
+    expect(suggestions?.hidden).toBe(false);
+    expect(renderedLabels()).toEqual(['Bratislava']);
   });
 
   it('shows recent locations when the field is empty', () => {

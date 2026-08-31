@@ -38,10 +38,14 @@
 }
 
 .location-modal-suggestions {
-  display: none;
+  display: block;
   max-height: 12rem;
   overflow-y: auto;
   border-radius: 6px;
+}
+
+.location-modal-suggestions[hidden] {
+  display: none;
 }
 
 .location-modal-suggestion,
