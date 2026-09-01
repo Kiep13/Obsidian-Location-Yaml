@@ -69,8 +69,14 @@ while recent ordering reflects the current notes.
 
 The picker is a custom modal with a visible suggestion list. It shows recent
 locations when the field is empty and recalculates up to five normalized substring
-matches on every keystroke. `ArrowUp`/`ArrowDown`, `Enter`, `Escape`, and mouse
-selection are supported.
+matches on every keystroke. Each visible suggestion has a non-layout shortcut
+badge (`1` through `5`). Forward `Tab` moves from the input to the first visible
+suggestion, or directly to `Submit` when there are no results; forward `Tab` from
+the suggestion block moves to `Submit`. Arrow keys keep all suggestions
+arrow-focusable through roving `tabindex`, and a focused suggestion can be chosen
+with its displayed number. Modified number keys and numbers typed in the input
+are left untouched. `ArrowUp`/`ArrowDown`, `Enter`, `Escape`, and mouse selection
+remain supported.
 
 ## Commands
 

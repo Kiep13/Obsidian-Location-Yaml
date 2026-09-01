@@ -130,6 +130,16 @@ export class LocationAssignModal extends Modal {
     });
 
     this.inputEl.addEventListener('keydown', (event: KeyboardEvent) => {
+      if (event.key === 'Tab' && !event.shiftKey) {
+        event.preventDefault();
+        if (this.filteredSuggestions.length > 0) {
+          this.focusSuggestion(0);
+        } else {
+          this.submitButtonEl.focus();
+        }
+        return;
+      }
+
       if (event.key === 'ArrowDown') {
         event.preventDefault();
         this.focusSuggestion(0);
@@ -209,7 +219,12 @@ export class LocationAssignModal extends Modal {
       const suggestionEl = this.suggestionsEl.createEl('button', {
         text: location.label,
         cls: 'location-modal-suggestion',
-        attr: { type: 'button' },
+        attr: {
+          type: 'button',
+          'data-shortcut': String(index + 1),
+          'aria-keyshortcuts': String(index + 1),
+          tabindex: index === 0 ? '0' : '-1',
+        },
       }) as unknown as HTMLButtonElement;
       suggestionEl.setAttribute('role', 'option');
       suggestionEl.setAttribute(
@@ -224,6 +239,22 @@ export class LocationAssignModal extends Modal {
         this.chooseLocation(location.label);
       });
       suggestionEl.addEventListener('keydown', (event: KeyboardEvent) => {
+        if (event.key === 'Tab' && !event.shiftKey) {
+          event.preventDefault();
+          this.submitButtonEl.focus();
+          return;
+        }
+
+        const shortcutIndex = this.getShortcutIndex(event);
+        if (shortcutIndex !== null) {
+          const shortcutLocation = this.filteredSuggestions[shortcutIndex];
+          if (shortcutLocation) {
+            event.preventDefault();
+            this.chooseLocation(shortcutLocation.label);
+          }
+          return;
+        }
+
         if (event.key === 'ArrowDown') {
           event.preventDefault();
           this.focusSuggestion(index + 1);
@@ -260,10 +291,23 @@ export class LocationAssignModal extends Modal {
     }
 
     const nextIndex = Math.min(Math.max(index, 0), this.filteredSuggestions.length - 1);
+    for (let childIndex = 0; childIndex < this.suggestionsEl.children.length; childIndex += 1) {
+      const suggestionEl = this.suggestionsEl.children[childIndex] as HTMLButtonElement;
+      suggestionEl.tabIndex = childIndex === nextIndex ? 0 : -1;
+    }
+
     const suggestionEl = this.suggestionsEl.children[nextIndex] as HTMLButtonElement | undefined;
     if (suggestionEl) {
       suggestionEl.focus();
     }
+  }
+
+  private getShortcutIndex(event: KeyboardEvent): number | null {
+    if (event.ctrlKey || event.metaKey || event.altKey || !/^[1-5]$/.test(event.key)) {
+      return null;
+    }
+
+    return Number(event.key) - 1;
   }
 
   private chooseLocation(label: string): void {

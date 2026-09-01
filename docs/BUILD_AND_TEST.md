@@ -70,7 +70,10 @@ commit and its contents must be used as the GitHub Release body.
 The unit suite must cover the complete picker sequence: open with a default,
 empty input showing recent items, partial input such as `Brat`, and an exact
 input such as `Bratislava`. Assert that the suggestion container is not hidden
-when it has results. A CSS rule that leaves `.location-modal-suggestions` at
+when it has results. Assert shortcut indices `1` through `5`, forward-Tab focus
+from the input with and without results, roving `tabindex` during arrow
+navigation, selection with shortcuts `1` and `5`, and ignored out-of-range or
+modified digit keys. A CSS rule that leaves `.location-modal-suggestions` at
 `display: none` is a release blocker.
 
 The service suite must cover a note changing from one location to another. The

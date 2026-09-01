@@ -30,7 +30,13 @@ The location picker is a custom `Modal`. Its suggestion container must be visibl
 when `hidden=false`; do not add a permanent `display: none` rule. The list is
 rendered on open and recalculated on every input event, keeping the existing
 recent/exact-match ranking, five-item limit, keyboard navigation, and mouse
-selection behavior.
+selection behavior. Each visible suggestion exposes a non-layout shortcut badge
+from 1 to 5. Forward `Tab` from the input focuses the first visible suggestion,
+or `Submit` when there are no results. Suggestions use roving `tabindex`: only
+the active suggestion is sequentially tabbable, while arrow navigation can focus
+the others; forward `Tab` from the suggestion block focuses `Submit`. Number
+shortcuts are handled only while a suggestion is focused, use the current
+visible ordering, and ignore modified digits.
 
 Before building a prompt context, refresh vault-derived usage. A vault
 modification is not considered synchronized until its `metadataCache.changed`

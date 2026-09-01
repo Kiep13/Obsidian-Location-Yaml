@@ -77,6 +77,39 @@ describe('LocationAssignModal', () => {
     return null;
   }
 
+  function dispatchKeydown(
+    element: any,
+    key: string,
+    modifiers: { altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean } = {},
+  ): any {
+    const event = {
+      type: 'keydown',
+      key,
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+      preventDefault: vi.fn(),
+      ...modifiers,
+    };
+    element.dispatchEvent(event);
+    return event;
+  }
+
+  function openWithFiveSuggestions(): any {
+    context = {
+      ...context,
+      defaultLocation: null,
+      knownLocations: [
+        ...context.knownLocations,
+        { id: 'location-airport', label: 'Airport' },
+      ],
+    };
+    modal = new LocationAssignModal(app, context, resolveSelection);
+    modal.onOpen();
+    return findFirstByClass(modal.contentEl, 'location-modal-suggestions');
+  }
+
   it('prefills the input with the default location and exposes the exact match', () => {
     modal.onOpen();
 
@@ -143,6 +176,132 @@ describe('LocationAssignModal', () => {
       'Gym',
       'Office',
     ]);
+  });
+
+  it('renders visible shortcut indices without changing suggestion text', () => {
+    const suggestions = openWithFiveSuggestions();
+
+    expect(suggestions.children.map((child: any) => child.textContent)).toEqual([
+      'Cafe',
+      'Home',
+      'Airport',
+      'Gym',
+      'Office',
+    ]);
+    expect(suggestions.children.map((child: any) => child.dataset.shortcut)).toEqual([
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+    ]);
+  });
+
+  it('moves forward Tab from the input to the first visible suggestion', () => {
+    const suggestions = openWithFiveSuggestions();
+    const input = findFirstByTag(modal.contentEl, 'input');
+
+    const event = dispatchKeydown(input, 'Tab');
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(suggestions.children[0].focused).toBe(true);
+    expect(suggestions.children[0].tabIndex).toBe(0);
+    expect(suggestions.children[1].focused).toBe(false);
+  });
+
+  it('moves forward Tab from a focused suggestion to Submit', () => {
+    const suggestions = openWithFiveSuggestions();
+    const input = findFirstByTag(modal.contentEl, 'input');
+    const submitButton = findSubmitButton(modal.contentEl);
+
+    dispatchKeydown(input, 'Tab');
+    const event = dispatchKeydown(suggestions.children[0], 'Tab');
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(submitButton.focused).toBe(true);
+  });
+
+  it('moves forward Tab from the input to Submit when there are no results', () => {
+    modal.onOpen();
+
+    const input = findFirstByTag(modal.contentEl, 'input');
+    const suggestions = findFirstByClass(modal.contentEl, 'location-modal-suggestions');
+    const submitButton = findSubmitButton(modal.contentEl);
+    input.value = 'Not a known location';
+    input.dispatchEvent({ type: 'input' });
+
+    const event = dispatchKeydown(input, 'Tab');
+
+    expect(suggestions.hidden).toBe(true);
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(submitButton.focused).toBe(true);
+  });
+
+  it('keeps suggestions arrow-focusable with a roving tabindex', () => {
+    const suggestions = openWithFiveSuggestions();
+    const input = findFirstByTag(modal.contentEl, 'input');
+
+    dispatchKeydown(input, 'Tab');
+    expect(suggestions.children.map((child: any) => child.tabIndex)).toEqual([0, -1, -1, -1, -1]);
+
+    dispatchKeydown(suggestions.children[0], 'ArrowDown');
+    expect(suggestions.children[1].focused).toBe(true);
+    expect(suggestions.children.map((child: any) => child.tabIndex)).toEqual([-1, 0, -1, -1, -1]);
+
+    dispatchKeydown(suggestions.children[1], 'ArrowDown');
+    expect(suggestions.children[2].focused).toBe(true);
+    expect(suggestions.children.map((child: any) => child.tabIndex)).toEqual([-1, -1, 0, -1, -1]);
+
+    dispatchKeydown(suggestions.children[2], 'ArrowUp');
+    expect(suggestions.children[1].focused).toBe(true);
+    expect(suggestions.children.map((child: any) => child.tabIndex)).toEqual([-1, 0, -1, -1, -1]);
+  });
+
+  it('selects the current first visible suggestion with shortcut 1', () => {
+    const suggestions = openWithFiveSuggestions();
+    suggestions.children[0].focus();
+
+    const event = dispatchKeydown(suggestions.children[0], '1');
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(resolveSelection).toHaveBeenCalledWith({ label: 'Cafe' });
+  });
+
+  it('selects the current fifth visible suggestion with shortcut 5', () => {
+    const suggestions = openWithFiveSuggestions();
+    suggestions.children[4].focus();
+
+    const event = dispatchKeydown(suggestions.children[4], '5');
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(resolveSelection).toHaveBeenCalledWith({ label: 'Office' });
+  });
+
+  it('ignores out-of-range and modified numeric shortcuts', () => {
+    modal.onOpen();
+    const suggestions = findFirstByClass(modal.contentEl, 'location-modal-suggestions');
+    suggestions.children[0].focus();
+
+    const outOfRangeEvent = dispatchKeydown(suggestions.children[0], '5');
+    const ctrlEvent = dispatchKeydown(suggestions.children[0], '1', { ctrlKey: true });
+    const metaEvent = dispatchKeydown(suggestions.children[0], '1', { metaKey: true });
+    const altEvent = dispatchKeydown(suggestions.children[0], '1', { altKey: true });
+
+    expect(outOfRangeEvent.preventDefault).not.toHaveBeenCalled();
+    expect(ctrlEvent.preventDefault).not.toHaveBeenCalled();
+    expect(metaEvent.preventDefault).not.toHaveBeenCalled();
+    expect(altEvent.preventDefault).not.toHaveBeenCalled();
+    expect(resolveSelection).not.toHaveBeenCalled();
+  });
+
+  it('does not intercept digits typed in the input', () => {
+    modal.onOpen();
+    const input = findFirstByTag(modal.contentEl, 'input');
+
+    const event = dispatchKeydown(input, '1');
+
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(resolveSelection).not.toHaveBeenCalled();
   });
 
   it('uses arrow keys and enter to choose a suggestion', () => {
