@@ -7,6 +7,9 @@ class MockElement {
   public value = '';
   public checked = false;
   public disabled = false;
+  public hidden = false;
+  public tabIndex = 0;
+  public focused = false;
   public dataset: Record<string, string> = {};
   public style: Record<string, string> = {};
   public classList = new Set<string>();
@@ -131,6 +134,10 @@ class MockElement {
       this.checked = value === 'true' || value === 'checked';
       return;
     }
+    if (name === 'tabindex') {
+      this.tabIndex = Number.parseInt(value, 10);
+      return;
+    }
     if (name.startsWith('data-')) {
       const key = name
         .slice(5)
@@ -169,7 +176,26 @@ class MockElement {
     });
   }
 
-  public focus(): void {}
+  public focus(): void {
+    const rootElement = this.getRootElement();
+    rootElement.clearFocus();
+    this.focused = true;
+  }
+
+  private getRootElement(): MockElement {
+    if (!this.parentElement) {
+      return this;
+    }
+
+    return this.parentElement.getRootElement();
+  }
+
+  private clearFocus(): void {
+    this.focused = false;
+    for (const child of this.children) {
+      child.clearFocus();
+    }
+  }
 }
 
 function parseFrontmatter(content: string): { frontmatter: Record<string, string>; body: string } {

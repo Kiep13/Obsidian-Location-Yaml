@@ -79,8 +79,17 @@ per-event timestamps; the frontmatter snapshot alone cannot reconstruct them.
 the default match when opened, recent locations for an empty field, and up to five
 normalized substring matches as the user types. The list is rebuilt on each
 `input` event. `ArrowUp`/`ArrowDown`, `Enter`, `Escape`, and mouse selection must
-continue to work. CSS must show the suggestion container when it is not hidden;
-tests should verify both the rendered list and its visibility state.
+continue to work. Every visible suggestion has a `data-shortcut` value from `1`
+to `5`, rendered as an absolutely positioned CSS badge so it does not affect the
+button's layout or wrapping. Forward `Tab` from the input focuses the first
+visible suggestion, or `Submit` when the list is empty. Suggestions use roving
+`tabindex`: the active suggestion has `tabindex="0"`, all other visible
+suggestions have `tabindex="-1"`, and arrow navigation can focus every item.
+Forward `Tab` from any focused suggestion goes to `Submit`. A digit shortcut is
+handled only by a focused suggestion, resolves against the current visible sorted
+list, and is ignored when `Ctrl`, `Cmd`, or `Alt` is held; digits typed in the
+input remain normal input. CSS must show the suggestion container when it is not
+hidden; tests should verify both the rendered list and its visibility state.
 
 When changing this behavior, test missing metadata, malformed values, arrays,
 duplicates, renamed files, and persistence failures. Check timers and rejected
