@@ -5,8 +5,7 @@ on:
     tags:
       # Actions tag filters are globs; the job-level guard below is the
       # authoritative exact X.Y.Z/no-prefix check.
-      - "0.[0-9]*.[0-9]*"
-      - "[1-9]*.[0-9]*.[0-9]*"
+      - "*"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -114,3 +113,30 @@ jobs:
               --notes-file "$RELEASE_NOTES_PATH" \
               --title "$GITHUB_REF_NAME"
           fi
+
+      - name: Verify published GitHub Release
+        shell: bash
+        env:
+          RELEASE_NOTES_PATH: docs/releases/${{ github.ref_name }}.md
+          RELEASE_JSON: release-verification.json
+        run: |
+          set -euo pipefail
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,body,assets > "$RELEASE_JSON"
+
+          test "$(jq -r '.tagName' "$RELEASE_JSON")" = "$GITHUB_REF_NAME"
+          test "$(jq -r '.body' "$RELEASE_JSON")" = "$(<"$RELEASE_NOTES_PATH")"
+
+          mapfile -t release_asset_names < <(jq -r '.assets[].name' "$RELEASE_JSON")
+          expected_release_assets=(main.js manifest.json styles.css "obsidian-location-${GITHUB_REF_NAME}.zip")
+          if [[ "${release_asset_names[*]}" != "${expected_release_assets[*]}" ]] || [[ "${#release_asset_names[@]}" -ne "${#expected_release_assets[@]}" ]]; then
+            printf 'Unexpected published Release assets:\n%s\n' "${release_asset_names[*]}" >&2
+            exit 1
+          fi
+
+          for asset in "${expected_release_assets[@]}"; do
+            size="$(jq -r --arg name "$asset" '.assets[] | select(.name == $name) | .size' "$RELEASE_JSON")"
+            if ! [[ "$size" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Published Release asset is missing or empty: $asset" >&2
+              exit 1
+            fi
+          done

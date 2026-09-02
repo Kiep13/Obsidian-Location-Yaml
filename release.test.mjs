@@ -10,19 +10,28 @@ import { join } from "node:path";
 import { URL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  classifyCommitImpact,
   classifyReleaseImpact,
+  nextVersion,
   packageRelease,
   validateRelease,
 } from "./release.mjs";
 
 const temporaryDirectories = [];
 
+function validReleaseNotes(version, impact = "patch") {
+  const majorSections = impact === "major"
+    ? "\n## Breaking changes\n\n- Removed the previous location format.\n\n## Migration\n\n- Migrate existing notes before upgrading.\n"
+    : "";
+  return `# Release ${version}\n\nDate: 2026-08-31\n\n## Summary\n\nThis release contains a concrete user-visible result.\n\n## Impact\n\n${impact}\n\n## Rationale\n\nThe selected impact follows the compatibility evidence.\n\n## Fixed\n\n- Corrected a user-visible release behavior.${majorSections}`;
+}
+
 function createFixture({
   packageVersion = "1.2.3",
   manifestId = "obsidian-location",
   manifestVersion = packageVersion,
   emptyAsset,
-  releaseNotes = `# Release ${packageVersion}\n\nDate: 2026-08-31\n\n## Fixed\n\n- A user-visible fix.\n`,
+  releaseNotes = validReleaseNotes(packageVersion),
 } = {}) {
   const rootDirectory = mkdtempSync(
     join(tmpdir(), "obsidian-location-release-"),
@@ -98,10 +107,7 @@ describe("release validation", () => {
   it("aligns trigger patterns and exact validation for semver major versions", () => {
     const triggerPatterns = readReleaseTriggerPatterns();
 
-    expect(triggerPatterns).toEqual([
-      "0.[0-9]*.[0-9]*",
-      "[1-9]*.[0-9]*.[0-9]*",
-    ]);
+    expect(triggerPatterns).toEqual(["*"]);
 
     for (const version of ["0.2.2", "10.2.3"]) {
       expect(matchesReleaseTrigger(version, triggerPatterns)).toBe(true);
@@ -111,8 +117,8 @@ describe("release validation", () => {
       ).toBe(version);
     }
 
-    expect(matchesReleaseTrigger("01.2.3", triggerPatterns)).toBe(false);
-    expect(matchesReleaseTrigger("0.2", triggerPatterns)).toBe(false);
+    expect(matchesReleaseTrigger("v0.2.2", triggerPatterns)).toBe(true);
+    expect(matchesReleaseTrigger("0.2", triggerPatterns)).toBe(true);
     const rootDirectory = createFixture({ packageVersion: "01.2.3" });
     expect(() =>
       validateRelease({ rootDirectory, expectedVersion: "01.2.3" }),
@@ -134,6 +140,25 @@ describe("release validation", () => {
     );
   });
 
+  it.each([
+    ["breaking: remove the old location format", "major"],
+    ["feat!: remove the old location format", "major"],
+    ["feat: add a location command\n\nBREAKING CHANGE: migrate old notes", "major"],
+    ["feat: add a location command\n\nBREAKING-CHANGE: migrate old notes", "major"],
+    ["feat: add a location command", "minor"],
+    ["fix: refresh location usage", "patch"],
+    ["perf: speed up location lookup", "patch"],
+    ["docs: clarify the release process", "none"],
+    ["test: add classifier coverage", "none"],
+    ["chore: update development tooling", "none"],
+    ["ci: update workflow", "none"],
+    ["build: refresh generated assets", "none"],
+    ["refactor: simplify release code", "none"],
+    ["style: format release code", "none"],
+  ])("classifies %s as %s", (message, impact) => {
+    expect(classifyCommitImpact(message)).toBe(impact);
+  });
+
   it("classifies mixed changes by the highest impact and blocks unknown evidence", () => {
     expect(
       classifyReleaseImpact([
@@ -153,6 +178,15 @@ describe("release validation", () => {
     expect(classifyReleaseImpact(["docs: clarify the release process", "test: add coverage"])).toBe(
       "none",
     );
+  });
+
+  it("maps every impact exactly, including 0.x versions", () => {
+    expect(nextVersion("0.2.7", "major")).toBe("1.0.0");
+    expect(nextVersion("0.2.7", "minor")).toBe("0.3.0");
+    expect(nextVersion("0.2.7", "patch")).toBe("0.2.8");
+    expect(nextVersion("1.2.3", "major")).toBe("2.0.0");
+    expect(nextVersion("1.2.3", "minor")).toBe("1.3.0");
+    expect(nextVersion("1.2.3", "patch")).toBe("1.2.4");
   });
 
   it("accepts the BRAT release contract for a tag version", () => {
@@ -188,26 +222,41 @@ describe("release validation", () => {
   });
 
   it.each([
-    ["wrong heading", "# 1.2.3\n\nDate: 2026-08-31\n\n- Fix\n", "heading"],
-    ["missing date", "# Release 1.2.3\n\n- Fix\n", "date"],
+    ["wrong heading", validReleaseNotes("1.2.3").replace("# Release 1.2.3", "# 1.2.3"), "heading"],
+    ["missing date", validReleaseNotes("1.2.3").replace("Date: 2026-08-31\n\n", ""), "date"],
     [
       "invalid date",
-      "# Release 1.2.3\n\nDate: 2026-02-30\n\n- A concrete fix.\n",
+      validReleaseNotes("1.2.3").replace("Date: 2026-08-31", "Date: 2026-02-30"),
       "date",
     ],
     [
+      "missing Summary",
+      validReleaseNotes("1.2.3").replace("## Summary\n\nThis release contains a concrete user-visible result.\n\n", ""),
+      "## Summary",
+    ],
+    [
+      "missing Impact",
+      validReleaseNotes("1.2.3").replace("## Impact\n\npatch\n\n", ""),
+      "## Impact",
+    ],
+    [
+      "missing Rationale",
+      validReleaseNotes("1.2.3").replace("## Rationale\n\nThe selected impact follows the compatibility evidence.\n\n", ""),
+      "## Rationale",
+    ],
+    [
       "missing change",
-      "# Release 1.2.3\n\nDate: 2026-08-31\n",
+      validReleaseNotes("1.2.3").replace("## Fixed\n\n- Corrected a user-visible release behavior.", ""),
       "concrete change",
     ],
     [
       "placeholder change",
-      "# Release 1.2.3\n\nDate: 2026-08-31\n\n- update\n",
+      validReleaseNotes("1.2.3").replace("- Corrected a user-visible release behavior.", "- update"),
       "concrete change",
     ],
     [
       "template change",
-      "# Release 1.2.3\n\nDate: 2026-08-31\n\n- Documentation-only user-facing change.\n",
+      validReleaseNotes("1.2.3").replace("- Corrected a user-visible release behavior.", "- Documentation-only user-facing change."),
       "concrete change",
     ],
   ])("rejects release notes with %s", (_name, releaseNotes, message) => {
@@ -216,6 +265,41 @@ describe("release validation", () => {
     expect(() =>
       validateRelease({ rootDirectory, expectedVersion: "1.2.3" }),
     ).toThrow(message);
+  });
+
+  it("requires the notes Impact to match the selected release impact", () => {
+    const rootDirectory = createFixture();
+
+    expect(() =>
+      validateRelease({
+        rootDirectory,
+        expectedVersion: "1.2.3",
+        expectedImpact: "minor",
+      }),
+    ).toThrow("does not match prepared impact");
+  });
+
+  it("requires breaking changes and migration sections for major notes", () => {
+    const rootDirectory = createFixture({
+      releaseNotes: validReleaseNotes("1.2.3", "major"),
+    });
+
+    expect(
+      validateRelease({
+        rootDirectory,
+        expectedVersion: "1.2.3",
+        expectedImpact: "major",
+      }).impact,
+    ).toBe("major");
+
+    const missingMigration = validReleaseNotes("1.2.3", "major").replace(
+      /\n## Migration[\s\S]*$/,
+      "",
+    );
+    const invalidRoot = createFixture({ releaseNotes: missingMigration });
+    expect(() =>
+      validateRelease({ rootDirectory: invalidRoot, expectedVersion: "1.2.3" }),
+    ).toThrow("Major release notes must contain ## Migration");
   });
 
   it("rejects a manifest id that does not identify this plugin", () => {
@@ -263,5 +347,13 @@ describe("release validation", () => {
       "release_assets=(main.js manifest.json styles.css \"$ZIP_PATH\")",
     );
     expect(workflow).toContain("--verify-tag");
+    expect(workflow).toContain(
+      'gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,body,assets',
+    );
+    expect(workflow).toContain(
+      'mapfile -t release_asset_names < <(jq -r \'.assets[].name\' "$RELEASE_JSON")',
+    );
+    expect(workflow).toContain('jq -r \'.tagName\' "$RELEASE_JSON"');
+    expect(workflow).toContain('jq -r \'.body\' "$RELEASE_JSON"');
   });
 });

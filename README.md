@@ -100,9 +100,11 @@ corepack pnpm lint
 
 ## Release
 
-Before every release, add a user-visible summary to
-`docs/releases/<X.Y.Z>.md`. Use the same summary as the GitHub Release body;
-the release process is documented in [`docs/RELEASE.md`](docs/RELEASE.md).
+Before every release, add notes to `docs/releases/<X.Y.Z>.md` with the exact
+heading/date plus non-empty `Summary`, `Impact`, and `Rationale` sections. Add
+at least one concrete change bullet; `major` notes also require `Breaking
+changes` and `Migration`. Use the same notes as the GitHub Release body; the
+full release process is documented in [`docs/RELEASE.md`](docs/RELEASE.md).
 
 This repository publishes tagged GitHub Releases for BRAT through GitHub
 Actions. The plugin version in `package.json` and `manifest.json` must match.
@@ -128,12 +130,19 @@ Choose the impact before preparing a release. The policy is:
   is explicitly resolved.
 
 For mixed changes, the highest applicable impact wins; `unknown` is a blocker.
-The classifier accepts Conventional Commit-style messages and is advisory—the
-maintainer still supplies the selected impact explicitly:
+The classifier uses the same fixed vocabulary as the release helper: `breaking`,
+a `!` header, or a `BREAKING CHANGE:`/`BREAKING-CHANGE:` footer means `major`;
+`feat` means `minor`; `fix`/`perf` mean `patch`; `docs`/`test`/`chore`/`ci`/
+`build`/`refactor`/`style` mean `none`. A malformed non-empty message means
+`unknown`; any unknown in mixed input blocks the result. The classifier is
+advisory—the maintainer still supplies the selected impact explicitly:
 
 ```bash
 corepack pnpm run release:classify -- --message "fix: refresh location usage"
 ```
+
+The version mapping is exact for all `X.Y.Z`, including `0.x`: `major` becomes
+`(X+1).0.0`, `minor` becomes `X.(Y+1).0`, and `patch` becomes `X.Y.(Z+1)`.
 
 From a clean repository root, prepare the selected release locally:
 

@@ -21,7 +21,9 @@ export const SEMVER_TAG_PATTERN =
 
 const NOTE_PLACEHOLDER = /^(?:user-visible (?:addition|behavior change|bug fix|change)|documentation-only user-facing change|required only when applicable|update|todo)\.?$/iu;
 const COMMIT_HEADER = /^([a-z]+)(?:\([^\r\n()]+\))?(!)?:\s+\S/i;
+const BREAKING_FOOTER = /^BREAKING(?: |-)CHANGE\s*:\s*\S.*$/i;
 const COMMIT_IMPACTS = new Map([
+  ["breaking", "major"],
   ["feat", "minor"],
   ["fix", "patch"],
   ["perf", "patch"],
@@ -32,6 +34,24 @@ const COMMIT_IMPACTS = new Map([
   ["build", "none"],
   ["refactor", "none"],
   ["style", "none"],
+]);
+const RELEASE_NOTE_SECTIONS = [
+  "Summary",
+  "Impact",
+  "Rationale",
+  "Added",
+  "Changed",
+  "Fixed",
+  "Breaking changes",
+  "Migration",
+  "Documentation",
+];
+const RELEASE_NOTE_CHANGE_SECTIONS = new Set([
+  "Added",
+  "Changed",
+  "Fixed",
+  "Breaking changes",
+  "Documentation",
 ]);
 
 function readJson(path) {
@@ -54,7 +74,35 @@ function assertExactVersion(version, label) {
   }
 }
 
-function assertReleaseNotes(rootDirectory, version) {
+function noteSections(notes) {
+  const sections = new Map();
+  let currentSection;
+  for (const line of notes.split(/\r?\n/)) {
+    const heading = line.match(/^## (.+)$/)?.[1];
+    if (heading) {
+      if (!RELEASE_NOTE_SECTIONS.includes(heading)) {
+        throw new Error(`Release notes contain an unsupported section: ${heading}`);
+      }
+      if (sections.has(heading)) {
+        throw new Error(`Release notes contain duplicate section: ${heading}`);
+      }
+      currentSection = [];
+      sections.set(heading, currentSection);
+    } else if (line.startsWith("#")) {
+      if (line.startsWith("# ") && sections.size === 0) continue;
+      throw new Error("Release notes contain an unexpected heading");
+    } else if (currentSection) {
+      currentSection.push(line);
+    }
+  }
+  return sections;
+}
+
+function nonEmptyLines(lines) {
+  return lines.map((line) => line.trim()).filter(Boolean);
+}
+
+function assertReleaseNotes(rootDirectory, version, expectedImpact) {
   const notesPath = join(rootDirectory, RELEASE_NOTES_DIRECTORY, `${version}.md`);
   assertNonEmptyFile(notesPath);
   const notes = readFileSync(notesPath, "utf8");
@@ -62,10 +110,6 @@ function assertReleaseNotes(rootDirectory, version) {
   const heading = lines.find((line) => line.length > 0);
   const dateMatch = notes.match(/^Date: (\d{4}-\d{2}-\d{2})$/m);
   const releaseDate = dateMatch ? new Date(`${dateMatch[1]}T00:00:00Z`) : null;
-  const concreteChange = lines.some((line) => {
-    const text = line.match(/^\s*-\s+(.+?)\s*$/)?.[1];
-    return text !== undefined && text.length >= 9 && !NOTE_PLACEHOLDER.test(text);
-  });
   if (heading !== `# Release ${version}`) {
     throw new Error(`Release notes heading must be # Release ${version}: ${notesPath}`);
   }
@@ -77,10 +121,59 @@ function assertReleaseNotes(rootDirectory, version) {
   ) {
     throw new Error(`Release notes date is missing or invalid: ${notesPath}`);
   }
+
+  const sections = noteSections(notes);
+  const sectionIndexes = [...sections.keys()].map((section) =>
+    RELEASE_NOTE_SECTIONS.indexOf(section),
+  );
+  if (sectionIndexes.some((index, position) => index < (sectionIndexes[position - 1] ?? -1))) {
+    throw new Error(`Release notes sections are out of order: ${notesPath}`);
+  }
+  for (const required of ["Summary", "Impact", "Rationale"]) {
+    if (!sections.has(required)) {
+      throw new Error(`Release notes must contain ## ${required}: ${notesPath}`);
+    }
+    if (nonEmptyLines(sections.get(required)).length === 0) {
+      throw new Error(`Release notes ## ${required} must not be empty: ${notesPath}`);
+    }
+  }
+
+  const impactLines = nonEmptyLines(sections.get("Impact"));
+  const impact = impactLines.length === 1 ? impactLines[0] : null;
+  if (!RELEASE_IMPACTS.includes(impact)) {
+    throw new Error(
+      `Release notes ## Impact must be exactly major, minor, or patch: ${notesPath}`,
+    );
+  }
+  if (expectedImpact !== undefined && impact !== expectedImpact) {
+    throw new Error(
+      `Release notes Impact (${impact}) does not match prepared impact (${expectedImpact}): ${notesPath}`,
+    );
+  }
+
+  if (impact === "major") {
+    for (const required of ["Breaking changes", "Migration"]) {
+      if (!sections.has(required)) {
+        throw new Error(`Major release notes must contain ## ${required}: ${notesPath}`);
+      }
+      if (nonEmptyLines(sections.get(required)).length === 0) {
+        throw new Error(`Release notes ## ${required} must not be empty: ${notesPath}`);
+      }
+    }
+  } else if (sections.has("Migration")) {
+    throw new Error(`Release notes ## Migration is only valid for major impact: ${notesPath}`);
+  }
+
+  const concreteChange = [...RELEASE_NOTE_CHANGE_SECTIONS].some((section) =>
+    (sections.get(section) ?? []).some((line) => {
+      const text = line.match(/^\s*-\s+(.+?)\s*$/)?.[1];
+      return text !== undefined && text.length >= 9 && !NOTE_PLACEHOLDER.test(text);
+    }),
+  );
   if (!concreteChange) {
     throw new Error(`Release notes must contain a concrete change: ${notesPath}`);
   }
-  return { notesPath, notes };
+  return { notesPath, notes, impact };
 }
 
 function messagesFrom(input) {
@@ -96,9 +189,13 @@ function messagesFrom(input) {
 
 export function classifyCommitImpact(message) {
   if (typeof message !== "string" || message.trim() === "") return "unknown";
-  const match = message.split(/\r?\n/, 1)[0].trim().match(COMMIT_HEADER);
+  const lines = message.split(/\r?\n/);
+  const match = lines[0].trim().match(COMMIT_HEADER);
   if (!match || !COMMIT_IMPACTS.has(match[1].toLowerCase())) return "unknown";
-  if (match[2] === "!" || /^BREAKING CHANGE(?:S)?\s*:/im.test(message)) {
+  const footerStart = lines.findIndex((line, index) => index > 0 && line.trim() === "");
+  const hasBreakingFooter = footerStart !== -1 &&
+    lines.slice(footerStart + 1).some((line) => BREAKING_FOOTER.test(line.trim()));
+  if (match[2] === "!" || hasBreakingFooter) {
     return "major";
   }
   return COMMIT_IMPACTS.get(match[1].toLowerCase());
@@ -151,6 +248,7 @@ function stylesMode(stylesPolicy, requireStyles) {
 export function validateRelease({
   rootDirectory = process.cwd(),
   expectedVersion,
+  expectedImpact,
   stylesPolicy = "required",
   requireStyles,
 } = {}) {
@@ -178,7 +276,7 @@ export function validateRelease({
     assetNames: assets,
     assetPaths: assets.map((asset) => join(root, asset)),
     stylesPolicy: mode,
-    ...assertReleaseNotes(root, expectedVersion ?? metadata.version),
+    ...assertReleaseNotes(root, expectedVersion ?? metadata.version, expectedImpact),
   };
 }
 
@@ -206,7 +304,7 @@ function assertKnownChanges(rootDirectory) {
   }
 }
 
-function nextVersion(current, impact) {
+export function nextVersion(current, impact) {
   assertExactVersion(current, "package.json version");
   if (!RELEASE_IMPACTS.includes(impact)) {
     throw new Error(`Release impact must be patch, minor, or major: ${impact}`);
@@ -253,7 +351,7 @@ export function prepareRelease({
   assertClean(root);
   const current = validateMetadata(root);
   const version = nextVersion(current.version, impact);
-  assertReleaseNotes(root, version);
+  assertReleaseNotes(root, version, impact);
   const releaseFiles = ["package.json", "manifest.json", "versions.json"];
   const saved = snapshots(root, [...releaseFiles, ...RELEASE_ASSETS]);
   try {

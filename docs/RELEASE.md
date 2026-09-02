@@ -31,12 +31,19 @@ For a mixed change, use the highest impact in this order:
 `unknown` > `major` > `minor` > `patch` > `none`. A `major`/`minor`/`patch`
 classification must describe the user-visible effect in the authored notes;
 `unknown` must be resolved explicitly before selecting a version. The
-`release:classify` command can classify Conventional Commit-style messages,
-but it does not change files or select a version for the maintainer:
+`release:classify` command uses this exact interface: `breaking`, a `!` header,
+or a `BREAKING CHANGE:`/`BREAKING-CHANGE:` footer returns `major`; `feat`
+returns `minor`; `fix` and `perf` return `patch`; `docs`, `test`, `chore`,
+`ci`, `build`, `refactor`, and `style` return `none`. A malformed non-empty
+message returns `unknown`, and any `unknown` in a mixed input blocks the result.
+It does not change files or select a version for the maintainer:
 
 ```bash
 corepack pnpm run release:classify -- --message "fix: refresh location usage"
 ```
+
+The version mapping is exact for every `X.Y.Z`, including `0.x`: `major` is
+`(X+1).0.0`, `minor` is `X.(Y+1).0`, and `patch` is `X.Y.(Z+1)`.
 
 ## Release notes
 
@@ -54,6 +61,14 @@ Date: YYYY-MM-DD
 
 One or two sentences describing the user-visible result.
 
+## Impact
+
+patch
+
+## Rationale
+
+Evidence supporting the selected impact and compatibility claim.
+
 ## Added
 
 - User-visible addition.
@@ -68,18 +83,26 @@ One or two sentences describing the user-visible result.
 
 ## Breaking changes
 
-- Required only when applicable.
+- Required for `major`; describe what existing users must change.
+
+## Migration
+
+- Required for `major`; give concrete upgrade instructions.
 
 ## Documentation
 
 - Documentation-only user-facing change.
 ```
 
-Keep only non-empty change categories and include at least one concrete
-user-visible change. The file name, `Release X.Y.Z` heading, and ISO date must
-match the version being released. The GitHub Release body must use the same
-text. Automatically generated GitHub notes do not replace these authored
-release notes, and a generic body such as `update` is not sufficient.
+`Summary`, `Impact`, and `Rationale` are required and must be non-empty;
+`Impact` must be exactly `major`, `minor`, or `patch` and must match the impact
+passed to `release:prepare`. Keep only non-empty change categories and include
+at least one concrete user-visible bullet. Major notes must also contain
+non-empty `Breaking changes` and `Migration` sections. The file name,
+`Release X.Y.Z` heading, and ISO date must match the version being released.
+The GitHub Release body must use the same text. Automatically generated
+GitHub notes do not replace these authored release notes, and a generic body
+such as `update` is not sufficient.
 
 ## Local release preparation
 
@@ -120,7 +143,9 @@ the frozen lockfile, runs typecheck/tests/lint/build, validates the manifest,
 version map, authored notes, and root assets, creates and checks the
 root-layout ZIP, and creates or updates the GitHub Release with `GITHUB_TOKEN`.
 The Release body is always read from the tagged
-`docs/releases/<X.Y.Z>.md` file; generated notes are not used.
+`docs/releases/<X.Y.Z>.md` file; generated notes are not used. A final workflow
+step verifies the published tag name, authored body, exact asset names, and
+non-zero asset sizes through the GitHub Release API.
 
 Before pushing a tag, confirm:
 
