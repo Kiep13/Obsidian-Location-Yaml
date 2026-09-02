@@ -101,8 +101,9 @@ corepack pnpm lint
 ## Release
 
 Before every release, add notes to `docs/releases/<X.Y.Z>.md` with the exact
-heading/date plus non-empty `Summary`, `Impact`, and `Rationale` sections. Add
-at least one concrete user-visible change bullet; `major` notes also require
+heading/date, non-empty `Summary` and `User-visible changes` sections, and
+non-empty `Impact:` and `Rationale:` inline fields. Add at least one concrete
+user-visible change bullet; `major` notes also require
 `Breaking changes` and `Migration`, while those sections are invalid for other
 impacts. Use the same notes as the GitHub Release body; the
 full release process is documented in [`docs/RELEASE.md`](docs/RELEASE.md).

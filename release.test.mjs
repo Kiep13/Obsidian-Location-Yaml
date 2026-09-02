@@ -33,6 +33,17 @@ function inlineReleaseNotes(version, impact = "patch") {
   return validReleaseNotes(version, impact);
 }
 
+function inlineContinuationNotes(version, field, value) {
+  const fieldValue =
+    field === "Impact"
+      ? "patch"
+      : "The selected impact follows the compatibility evidence.";
+  return validReleaseNotes(version).replace(
+    `${field}: ${fieldValue}`,
+    `${field}: ${value}\ncontinued inline text`,
+  );
+}
+
 function runClassifier(...args) {
   return execFileSync(
     process.execPath,
@@ -280,6 +291,21 @@ describe("release validation", () => {
     const result = validateRelease({ rootDirectory, expectedVersion: "1.2.3" });
     expect(result).toMatchObject({ impact: "patch" });
     expect(result.legacy).toBeUndefined();
+  });
+
+  it.each([
+    ["Impact", ""],
+    ["Rationale", ""],
+    ["Impact", "patch"],
+    ["Rationale", "The selected impact follows the compatibility evidence."],
+  ])("rejects a multiline %s inline field", (field, value) => {
+    const rootDirectory = createFixture({
+      releaseNotes: inlineContinuationNotes("1.2.3", field, value),
+    });
+
+    expect(() =>
+      validateRelease({ rootDirectory, expectedVersion: "1.2.3" }),
+    ).toThrow("Inline release note fields must contain one line of text");
   });
 
   it("accepts the release-note template documented in docs/RELEASE.md", () => {
@@ -565,13 +591,25 @@ describe("release validation", () => {
       "mapfile -t release_asset_names < <(jq -r '.assets[].name' \"$RELEASE_JSON\")",
     );
     expect(workflow).toContain("jq -r '.tagName' \"$RELEASE_JSON\"");
-    expect(workflow).toContain("jq -r '.body' \"$RELEASE_JSON\"");
+    expect(workflow).toContain(
+      'jq -j \'.body\' "$RELEASE_JSON" > "$RELEASE_BODY_PATH"',
+    );
+    expect(workflow).toContain(
+      'cmp -s "$RELEASE_NOTES_PATH" "$RELEASE_BODY_PATH"',
+    );
     expect(workflow).toContain("jq -r '.isDraft' \"$RELEASE_JSON\"");
     expect(workflow).toContain("jq -r '.isPrerelease' \"$RELEASE_JSON\"");
     expect(workflow).toContain(
       'git ls-remote --exit-code origin "$tag_ref" "$tag_ref^{}"',
     );
     expect(workflow).toContain('git rev-parse --verify "$tag_ref^{}"');
+    expect(workflow).toContain("normalize_origin_url");
+    expect(workflow).toContain("http://github.com/*");
+    expect(workflow).toContain("git@github.com:*");
+    expect(workflow).toContain('url="${url%.git}"');
+    expect(workflow).not.toContain(
+      'test "$(git remote get-url origin)" = "https://github.com/$GITHUB_REPOSITORY.git"',
+    );
     expect(workflow).not.toContain("--allow-legacy");
     expect(workflow).toContain('sha256sum "$ZIP_PATH"');
     expect(workflow).toContain('sha256sum "$DOWNLOAD_DIR/$zip_name"');

@@ -70,11 +70,11 @@ One or two sentences describing the user-visible result.
 - Concrete user-visible change.
 ```
 
-`Summary`, `Impact`, and `Rationale` are required and must be non-empty.
-`Impact:` and `Rationale:` are inline fields and must appear before the `Summary`
-section; `Summary` must be followed by `User-visible changes`. `Impact` must be
-exactly `major`, `minor`, or `patch` and must match the impact passed to
-`release:prepare`. `User-visible changes` is required and must contain a
+`Summary` and `User-visible changes` are required sections; `Impact:` and
+`Rationale:` are required non-empty inline fields. The inline fields must appear
+before the `Summary` section, and `Summary` must be followed by `User-visible
+changes`. `Impact` must be exactly `major`, `minor`, or `patch` and must match
+the impact passed to `release:prepare`. `User-visible changes` must contain a
 concrete bullet. For a `major` release, append non-empty
 `Breaking changes` and `Migration` sections in that order; those two sections
 are invalid for other impacts. Other sections are not part of the canonical

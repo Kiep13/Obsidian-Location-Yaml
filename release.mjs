@@ -104,7 +104,7 @@ function noteSections(notes, allowedSections = RELEASE_NOTE_SECTIONS) {
   let currentSection;
   let sawTitle = false;
   let sawDate = false;
-  let inlineScalar = false;
+  let inlineField;
   for (const line of notes.split(/\r?\n/)) {
     if (line === "") {
       if (currentSection) currentSection.push(line);
@@ -144,8 +144,9 @@ function noteSections(notes, allowedSections = RELEASE_NOTE_SECTIONS) {
       }
       currentSection = [];
       sections.set(heading, currentSection);
-      inlineScalar = value !== undefined && value.trim() !== "";
-      if (inlineScalar) currentSection.push(value);
+      inlineField = heading;
+      if (value !== undefined && value.trim() !== "")
+        currentSection.push(value);
       continue;
     }
     const heading = line.match(/^## (.+)$/)?.[1];
@@ -162,14 +163,14 @@ function noteSections(notes, allowedSections = RELEASE_NOTE_SECTIONS) {
       }
       currentSection = [];
       sections.set(heading, currentSection);
-      inlineScalar = false;
+      inlineField = undefined;
     } else if (line.startsWith("#")) {
       throw new Error("Release notes contain an unexpected heading");
     } else if (!sawDate) {
       throw new Error("Release notes contain content before the Date line");
     } else if (!currentSection) {
       throw new Error("Release notes contain content outside a note section");
-    } else if (inlineScalar) {
+    } else if (inlineField) {
       throw new Error(
         "Inline release note fields must contain one line of text",
       );

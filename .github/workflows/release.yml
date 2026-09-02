@@ -44,7 +44,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git remote get-url origin)" = "https://github.com/$GITHUB_REPOSITORY.git"
+          normalize_origin_url() {
+            local url="$1"
+            case "$url" in
+              https://github.com/*|http://github.com/*)
+                url="${url#*://github.com/}"
+                ;;
+              git@github.com:*)
+                url="${url#git@github.com:}"
+                ;;
+              ssh://git@github.com/*)
+                url="${url#ssh://git@github.com/}"
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+            url="${url%/}"
+            url="${url%.git}"
+            printf '%s\n' "$url"
+          }
+          normalized_origin="$(normalize_origin_url "$(git remote get-url origin)")"
+          test "$normalized_origin" = "$GITHUB_REPOSITORY"
           test -z "$(git status --porcelain --untracked-files=all)"
           tag_ref="refs/tags/$GITHUB_REF_NAME"
           checked_out_target="$(git rev-parse --verify "$tag_ref^{}")"
@@ -153,7 +174,13 @@ jobs:
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,body,assets,isDraft,isPrerelease > "$RELEASE_JSON"
 
           test "$(jq -r '.tagName' "$RELEASE_JSON")" = "$GITHUB_REF_NAME"
-          test "$(jq -r '.body' "$RELEASE_JSON")" = "$(<"$RELEASE_NOTES_PATH")"
+          RELEASE_BODY_PATH="$(mktemp)"
+          trap 'rm -f "$RELEASE_BODY_PATH"' EXIT
+          jq -j '.body' "$RELEASE_JSON" > "$RELEASE_BODY_PATH"
+          if ! cmp -s "$RELEASE_NOTES_PATH" "$RELEASE_BODY_PATH"; then
+            echo "Published Release body differs byte-for-byte from authored notes" >&2
+            exit 1
+          fi
           test "$(jq -r '.isDraft' "$RELEASE_JSON")" = "false"
           test "$(jq -r '.isPrerelease' "$RELEASE_JSON")" = "false"
 
