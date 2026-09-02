@@ -5,9 +5,11 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { URL } from "node:url";
+import process from "node:process";
+import { fileURLToPath, URL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   classifyCommitImpact,
@@ -20,14 +22,27 @@ import {
 const temporaryDirectories = [];
 
 function validReleaseNotes(version, impact = "patch") {
-  const majorSections = impact === "major"
-    ? "\n## Breaking changes\n\n- Removed the previous location format.\n\n## Migration\n\n- Migrate existing notes before upgrading.\n"
-    : "";
-  return `# Release ${version}\n\nDate: 2026-08-31\n\n## Summary\n\nThis release contains a concrete user-visible result.\n\n## Impact\n\n${impact}\n\n## Rationale\n\nThe selected impact follows the compatibility evidence.\n\n## User-visible changes\n\n- Corrected a user-visible release behavior.${majorSections}`;
+  const majorSections =
+    impact === "major"
+      ? "\n## Breaking changes\n\n- Removed the previous location format.\n\n## Migration\n\n- Migrate existing notes before upgrading.\n"
+      : "";
+  return `# Release ${version}\n\nDate: 2026-08-31\n\nImpact: ${impact}\n\nRationale: The selected impact follows the compatibility evidence.\n\n## Summary\n\nThis release contains a concrete user-visible result.\n\n## User-visible changes\n\n- Corrected a user-visible release behavior.${majorSections}`;
 }
 
 function inlineReleaseNotes(version, impact = "patch") {
-  return `# Release ${version}\n\nDate: 2026-08-31\n\nImpact: ${impact}\nRationale: The selected impact follows the compatibility evidence.\nSummary: This release contains a concrete user-visible result.\nUser-visible changes:\n\n- Corrected a user-visible release behavior.\n`;
+  return validReleaseNotes(version, impact);
+}
+
+function runClassifier(...args) {
+  return execFileSync(
+    process.execPath,
+    [
+      fileURLToPath(new URL("./release.mjs", import.meta.url)),
+      "classify",
+      ...args,
+    ],
+    { encoding: "utf8" },
+  ).trim();
 }
 
 function createFixture({
@@ -136,9 +151,7 @@ describe("release validation", () => {
     );
 
     expect(workflow).toContain('"$GITHUB_REF_TYPE" != "tag"');
-    expect(workflow).toContain(
-      '"$GITHUB_REF" != "refs/tags/$GITHUB_REF_NAME"',
-    );
+    expect(workflow).toContain('"$GITHUB_REF" != "refs/tags/$GITHUB_REF_NAME"');
     expect(workflow).toContain(
       '"$GITHUB_REF_NAME" =~ ^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$',
     );
@@ -148,8 +161,14 @@ describe("release validation", () => {
   it.each([
     ["breaking: remove the old location format", "major"],
     ["feat!: remove the old location format", "major"],
-    ["feat: add a location command\n\nBREAKING CHANGE: migrate old notes", "major"],
-    ["feat: add a location command\n\nBREAKING-CHANGE: migrate old notes", "major"],
+    [
+      "feat: add a location command\n\nBREAKING CHANGE: migrate old notes",
+      "major",
+    ],
+    [
+      "feat: add a location command\n\nBREAKING-CHANGE: migrate old notes",
+      "major",
+    ],
     ["feat: add a location command", "minor"],
     ["fix: refresh location usage", "patch"],
     ["perf: speed up location lookup", "patch"],
@@ -166,6 +185,30 @@ describe("release validation", () => {
     expect(classifyCommitImpact(message)).toBe(impact);
   });
 
+  it.each([
+    [
+      "--message",
+      "feat: add a location command\n\nBREAKING CHANGE: migrate old notes",
+      "major",
+    ],
+    [
+      "--commit",
+      "fix: refresh location usage\n\nBREAKING-CHANGE: migrate old notes",
+      "major",
+    ],
+    [
+      "--message",
+      "feat: add a command\nBREAKING CHANGE: migrate old notes",
+      "unknown",
+    ],
+  ])(
+    "uses the same classifier semantics for %s as the API",
+    (option, message, impact) => {
+      expect(classifyReleaseImpact({ message })).toBe(impact);
+      expect(runClassifier(option, message)).toBe(impact);
+    },
+  );
+
   it("classifies mixed changes by the highest impact and blocks unknown evidence", () => {
     expect(
       classifyReleaseImpact([
@@ -173,18 +216,24 @@ describe("release validation", () => {
         "fix: refresh location usage",
       ]),
     ).toBe("patch");
-    expect(classifyReleaseImpact(["feat: add a location command", "fix: typo"])).toBe(
-      "minor",
-    );
-    expect(classifyReleaseImpact(["feat!: remove the old location format"])).toBe(
-      "major",
-    );
-    expect(classifyReleaseImpact(["fix: refresh location usage", "ambiguous change"])).toBe(
-      "unknown",
-    );
-    expect(classifyReleaseImpact(["docs: clarify the release process", "test: add coverage"])).toBe(
-      "none",
-    );
+    expect(
+      classifyReleaseImpact(["feat: add a location command", "fix: typo"]),
+    ).toBe("minor");
+    expect(
+      classifyReleaseImpact(["feat!: remove the old location format"]),
+    ).toBe("major");
+    expect(
+      classifyReleaseImpact([
+        "fix: refresh location usage",
+        "ambiguous change",
+      ]),
+    ).toBe("unknown");
+    expect(
+      classifyReleaseImpact([
+        "docs: clarify the release process",
+        "test: add coverage",
+      ]),
+    ).toBe("none");
   });
 
   it("maps every impact exactly, including 0.x versions", () => {
@@ -194,41 +243,75 @@ describe("release validation", () => {
     expect(nextVersion("1.2.3", "major")).toBe("2.0.0");
     expect(nextVersion("1.2.3", "minor")).toBe("1.3.0");
     expect(nextVersion("1.2.3", "patch")).toBe("1.2.4");
-    expect(() => nextVersion("1.2.3", "none")).toThrow("patch, minor, or major");
-    expect(() => nextVersion("1.2.3", "unknown")).toThrow("patch, minor, or major");
+    expect(() => nextVersion("1.2.3", "none")).toThrow(
+      "patch, minor, or major",
+    );
+    expect(() => nextVersion("1.2.3", "unknown")).toThrow(
+      "patch, minor, or major",
+    );
   });
 
   it("requires an explicit legacy flag for the existing 0.2.7 notes", () => {
     const rootDirectory = createFixture({
       packageVersion: "0.2.7",
-      releaseNotes: readFileSync(new URL("./docs/releases/0.2.7.md", import.meta.url), "utf8"),
+      releaseNotes: readFileSync(
+        new URL("./docs/releases/0.2.7.md", import.meta.url),
+        "utf8",
+      ),
     });
 
-    expect(() => validateRelease({ rootDirectory, expectedVersion: "0.2.7" }))
-      .toThrow("must contain ## Impact");
-    expect(validateRelease({
-      rootDirectory,
-      expectedVersion: "0.2.7",
-      allowLegacyNotes: true,
-    }).legacy).toBe(true);
+    expect(() =>
+      validateRelease({ rootDirectory, expectedVersion: "0.2.7" }),
+    ).toThrow("unsupported section");
+    expect(
+      validateRelease({
+        rootDirectory,
+        expectedVersion: "0.2.7",
+        allowLegacyNotes: true,
+      }).legacy,
+    ).toBe(true);
   });
 
-  it("accepts the canonical inline release-note fields", () => {
-    const rootDirectory = createFixture({ releaseNotes: inlineReleaseNotes("1.2.3") });
+  it("accepts the canonical release-note grammar", () => {
+    const rootDirectory = createFixture({
+      releaseNotes: inlineReleaseNotes("1.2.3"),
+    });
 
     const result = validateRelease({ rootDirectory, expectedVersion: "1.2.3" });
     expect(result).toMatchObject({ impact: "patch" });
     expect(result.legacy).toBeUndefined();
   });
 
+  it("accepts the release-note template documented in docs/RELEASE.md", () => {
+    const documentation = readFileSync(
+      new URL("./docs/RELEASE.md", import.meta.url),
+      "utf8",
+    );
+    const template = documentation.match(/```markdown\n([\s\S]*?)\n```/)?.[1];
+    if (!template)
+      throw new Error("Release-note template is missing from docs/RELEASE.md");
+
+    const rootDirectory = createFixture({
+      releaseNotes: template
+        .replaceAll("X.Y.Z", "1.2.3")
+        .replace("YYYY-MM-DD", "2026-08-31"),
+    });
+
+    expect(
+      validateRelease({ rootDirectory, expectedVersion: "1.2.3" }).impact,
+    ).toBe("patch");
+  });
+
   it("does not allow legacy-note compatibility for another version", () => {
     const rootDirectory = createFixture();
 
-    expect(() => validateRelease({
-      rootDirectory,
-      expectedVersion: "1.2.3",
-      allowLegacyNotes: true,
-    })).toThrow("supported only for 0.2.7");
+    expect(() =>
+      validateRelease({
+        rootDirectory,
+        expectedVersion: "1.2.3",
+        allowLegacyNotes: true,
+      }),
+    ).toThrow("supported only for 0.2.7");
   });
 
   it("accepts the BRAT release contract for a tag version", () => {
@@ -251,7 +334,11 @@ describe("release validation", () => {
       outputPath: "artifacts/plugin.zip",
     });
 
-    expect(result.assetNames).toEqual(["main.js", "manifest.json", "styles.css"]);
+    expect(result.assetNames).toEqual([
+      "main.js",
+      "manifest.json",
+      "styles.css",
+    ]);
     expect(result.entries).toEqual(result.assetNames);
   });
 
@@ -264,41 +351,67 @@ describe("release validation", () => {
   });
 
   it.each([
-    ["wrong heading", validReleaseNotes("1.2.3").replace("# Release 1.2.3", "# 1.2.3"), "heading"],
-    ["missing date", validReleaseNotes("1.2.3").replace("Date: 2026-08-31\n\n", ""), "date"],
+    [
+      "wrong heading",
+      validReleaseNotes("1.2.3").replace("# Release 1.2.3", "# 1.2.3"),
+      "heading",
+    ],
+    [
+      "missing date",
+      validReleaseNotes("1.2.3").replace("Date: 2026-08-31\n\n", ""),
+      "date",
+    ],
     [
       "invalid date",
-      validReleaseNotes("1.2.3").replace("Date: 2026-08-31", "Date: 2026-02-30"),
+      validReleaseNotes("1.2.3").replace(
+        "Date: 2026-08-31",
+        "Date: 2026-02-30",
+      ),
       "date",
     ],
     [
       "missing Summary",
-      validReleaseNotes("1.2.3").replace("## Summary\n\nThis release contains a concrete user-visible result.\n\n", ""),
+      validReleaseNotes("1.2.3").replace(
+        "## Summary\n\nThis release contains a concrete user-visible result.\n\n",
+        "",
+      ),
       "## Summary",
     ],
     [
       "missing Impact",
-      validReleaseNotes("1.2.3").replace("## Impact\n\npatch\n\n", ""),
-      "## Impact",
+      validReleaseNotes("1.2.3").replace("Impact: patch\n\n", ""),
+      "Impact",
     ],
     [
       "missing Rationale",
-      validReleaseNotes("1.2.3").replace("## Rationale\n\nThe selected impact follows the compatibility evidence.\n\n", ""),
-      "## Rationale",
+      validReleaseNotes("1.2.3").replace(
+        "Rationale: The selected impact follows the compatibility evidence.\n\n",
+        "",
+      ),
+      "Rationale",
     ],
     [
       "missing change",
-      validReleaseNotes("1.2.3").replace("- Corrected a user-visible release behavior.", "No concrete user-visible bullet."),
+      validReleaseNotes("1.2.3").replace(
+        "- Corrected a user-visible release behavior.",
+        "No concrete user-visible bullet.",
+      ),
       "concrete change",
     ],
     [
       "placeholder change",
-      validReleaseNotes("1.2.3").replace("- Corrected a user-visible release behavior.", "- update"),
+      validReleaseNotes("1.2.3").replace(
+        "- Corrected a user-visible release behavior.",
+        "- update",
+      ),
       "concrete change",
     ],
     [
       "template change",
-      validReleaseNotes("1.2.3").replace("- Corrected a user-visible release behavior.", "- Documentation-only user-facing change."),
+      validReleaseNotes("1.2.3").replace(
+        "- Corrected a user-visible release behavior.",
+        "- Documentation-only user-facing change.",
+      ),
       "concrete change",
     ],
   ])("rejects release notes with %s", (_name, releaseNotes, message) => {
@@ -352,17 +465,52 @@ describe("release validation", () => {
       ),
     });
 
-    expect(validateRelease({ rootDirectory, expectedVersion: "1.2.3" }).impact).toBe("patch");
+    expect(
+      validateRelease({ rootDirectory, expectedVersion: "1.2.3" }).impact,
+    ).toBe("patch");
+  });
+
+  it("rejects non-canonical release-note sections and field syntax", () => {
+    const categoryRoot = createFixture({
+      releaseNotes: validReleaseNotes("1.2.3").replace(
+        "## User-visible changes",
+        "## Added\n\n- Added a visible location suggestion command.\n\n## User-visible changes",
+      ),
+    });
+    expect(() =>
+      validateRelease({
+        rootDirectory: categoryRoot,
+        expectedVersion: "1.2.3",
+      }),
+    ).toThrow("unsupported section");
+
+    const headingFieldRoot = createFixture({
+      releaseNotes: validReleaseNotes("1.2.3")
+        .replace("Impact: patch", "## Impact\n\npatch")
+        .replace(
+          "Rationale: The selected impact follows the compatibility evidence.",
+          "## Rationale\n\nThe selected impact follows the compatibility evidence.",
+        ),
+    });
+    expect(() =>
+      validateRelease({
+        rootDirectory: headingFieldRoot,
+        expectedVersion: "1.2.3",
+      }),
+    ).toThrow("unsupported section");
   });
 
   it("rejects breaking changes sections for non-major notes", () => {
     const rootDirectory = createFixture({
-      releaseNotes: validReleaseNotes("1.2.3")
-        .replace("## User-visible changes", "## Breaking changes\n\n- Removed the old location format.\n\n## User-visible changes"),
+      releaseNotes: validReleaseNotes("1.2.3").replace(
+        "## User-visible changes",
+        "## Breaking changes\n\n- Removed the old location format.\n\n## User-visible changes",
+      ),
     });
 
-    expect(() => validateRelease({ rootDirectory, expectedVersion: "1.2.3" }))
-      .toThrow("## Breaking changes is only valid for major impact");
+    expect(() =>
+      validateRelease({ rootDirectory, expectedVersion: "1.2.3" }),
+    ).toThrow("## Breaking changes is only valid for major impact");
   });
 
   it("rejects a manifest id that does not identify this plugin", () => {
@@ -407,20 +555,22 @@ describe("release validation", () => {
       "expected_entries=(main.js manifest.json styles.css)",
     );
     expect(workflow).toContain(
-      "release_assets=(main.js manifest.json styles.css \"$ZIP_PATH\")",
+      'release_assets=(main.js manifest.json styles.css "$ZIP_PATH")',
     );
     expect(workflow).toContain("--verify-tag");
     expect(workflow).toContain(
       'gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,body,assets,isDraft,isPrerelease',
     );
     expect(workflow).toContain(
-      'mapfile -t release_asset_names < <(jq -r \'.assets[].name\' "$RELEASE_JSON")',
+      "mapfile -t release_asset_names < <(jq -r '.assets[].name' \"$RELEASE_JSON\")",
     );
-    expect(workflow).toContain('jq -r \'.tagName\' "$RELEASE_JSON"');
-    expect(workflow).toContain('jq -r \'.body\' "$RELEASE_JSON"');
+    expect(workflow).toContain("jq -r '.tagName' \"$RELEASE_JSON\"");
+    expect(workflow).toContain("jq -r '.body' \"$RELEASE_JSON\"");
     expect(workflow).toContain("jq -r '.isDraft' \"$RELEASE_JSON\"");
     expect(workflow).toContain("jq -r '.isPrerelease' \"$RELEASE_JSON\"");
-    expect(workflow).toContain('git ls-remote --exit-code origin "$tag_ref" "$tag_ref^{}"');
+    expect(workflow).toContain(
+      'git ls-remote --exit-code origin "$tag_ref" "$tag_ref^{}"',
+    );
     expect(workflow).toContain('git rev-parse --verify "$tag_ref^{}"');
     expect(workflow).not.toContain("--allow-legacy");
     expect(workflow).toContain('sha256sum "$ZIP_PATH"');

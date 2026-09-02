@@ -57,53 +57,28 @@ reviewable. Use this structure:
 
 Date: YYYY-MM-DD
 
+Impact: patch
+
+Rationale: Evidence supporting the selected impact and compatibility claim.
+
 ## Summary
 
 One or two sentences describing the user-visible result.
 
-## Impact
-
-patch
-
-## Rationale
-
-Evidence supporting the selected impact and compatibility claim.
-
 ## User-visible changes
 
 - Concrete user-visible change.
-
-## Added
-
-- User-visible addition.
-
-## Changed
-
-- User-visible behavior change.
-
-## Fixed
-
-- User-visible bug fix.
-
-## Breaking changes
-
-- Required for `major`; describe what existing users must change.
-
-## Migration
-
-- Required for `major`; give concrete upgrade instructions.
-
-## Documentation
-
-- Documentation-only user-facing change.
 ```
 
-`Summary`, `Impact`, and `Rationale` are required and must be non-empty;
-`Impact` must be exactly `major`, `minor`, or `patch` and must match the impact
-passed to `release:prepare`. `User-visible changes` and the category sections
-are optional, but at least one of them must contain a concrete user-visible
-bullet. Major notes must also contain non-empty `Breaking changes` and
-`Migration` sections; those sections are invalid for other impacts. The file name,
+`Summary`, `Impact`, and `Rationale` are required and must be non-empty.
+`Impact:` and `Rationale:` are inline fields and must appear before the `Summary`
+section; `Summary` must be followed by `User-visible changes`. `Impact` must be
+exactly `major`, `minor`, or `patch` and must match the impact passed to
+`release:prepare`. `User-visible changes` is required and must contain a
+concrete bullet. For a `major` release, append non-empty
+`Breaking changes` and `Migration` sections in that order; those two sections
+are invalid for other impacts. Other sections are not part of the canonical
+grammar. The file name,
 `Release X.Y.Z` heading, and ISO date must match the version being released.
 The GitHub Release body must use the same text. Automatically generated
 GitHub notes do not replace these authored release notes, and a generic body

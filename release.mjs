@@ -21,7 +21,8 @@ export const LEGACY_RELEASE_VERSION = "0.2.7";
 export const SEMVER_TAG_PATTERN =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 
-const NOTE_PLACEHOLDER = /^(?:user-visible (?:addition|behavior change|bug fix|change|changes)|documentation-only user-facing change|required only when applicable|update|todo)\.?$/iu;
+const NOTE_PLACEHOLDER =
+  /^(?:user-visible (?:addition|behavior change|bug fix|change|changes)|documentation-only user-facing change|required only when applicable|update|todo)\.?$/iu;
 const COMMIT_HEADER = /^([a-z]+)(?:\([^\r\n()]+\))?(!)?: [^\s\r\n].*$/i;
 const BREAKING_FOOTER = /^BREAKING(?: |-)CHANGE\s*:\s*\S.*$/i;
 const COMMIT_IMPACTS = new Map([
@@ -38,23 +39,22 @@ const COMMIT_IMPACTS = new Map([
   ["style", "none"],
 ]);
 const RELEASE_NOTE_CANONICAL_SECTIONS = [
-  "Impact",
-  "Rationale",
   "Summary",
   "User-visible changes",
   "Breaking changes",
   "Migration",
 ];
-const RELEASE_NOTE_SECTIONS = [
-  ...RELEASE_NOTE_CANONICAL_SECTIONS,
-  "Added",
-  "Changed",
-  "Fixed",
-  "Documentation",
-];
+const RELEASE_NOTE_SECTIONS = RELEASE_NOTE_CANONICAL_SECTIONS;
+const RELEASE_NOTE_INLINE_FIELDS = ["Impact", "Rationale"];
 const RELEASE_NOTE_ORDERS = [
-  ["Impact", "Rationale", "Summary", "User-visible changes", "Breaking changes", "Migration"],
-  ["Summary", "Impact", "Rationale", "User-visible changes", "Breaking changes", "Migration"],
+  [
+    "Impact",
+    "Rationale",
+    "Summary",
+    "User-visible changes",
+    "Breaking changes",
+    "Migration",
+  ],
 ];
 const LEGACY_RELEASE_NOTE_SECTIONS = [
   "Summary",
@@ -68,7 +68,12 @@ const LEGACY_RELEASE_NOTE_SECTIONS = [
   "Migration",
   "Documentation",
 ];
-const LEGACY_NOTE_CHANGE_SECTIONS = new Set(["Added", "Changed", "Fixed", "Documentation"]);
+const LEGACY_NOTE_CHANGE_SECTIONS = new Set([
+  "Added",
+  "Changed",
+  "Fixed",
+  "Documentation",
+]);
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -79,7 +84,11 @@ function writeJson(path, value) {
 }
 
 function assertNonEmptyFile(path) {
-  if (!existsSync(path) || !statSync(path).isFile() || statSync(path).size === 0) {
+  if (
+    !existsSync(path) ||
+    !statSync(path).isFile() ||
+    statSync(path).size === 0
+  ) {
     throw new Error(`Release asset is missing or empty: ${path}`);
   }
 }
@@ -111,7 +120,9 @@ function noteSections(notes, allowedSections = RELEASE_NOTE_SECTIONS) {
     const date = line.match(/^Date: (\d{4}-\d{2}-\d{2})$/);
     if (date) {
       if (!sawTitle || sawDate || sections.size > 0) {
-        throw new Error("Release notes Date must appear once before note fields");
+        throw new Error(
+          "Release notes Date must appear once before note fields",
+        );
       }
       sawDate = true;
       continue;
@@ -120,14 +131,14 @@ function noteSections(notes, allowedSections = RELEASE_NOTE_SECTIONS) {
       throw new Error("Release notes date is missing or invalid");
     }
     const inline = line.match(
-      /^(Impact|Rationale|Summary|User-visible changes|Breaking changes|Migration):(?:[ \t]+(.*))?$/,
+      new RegExp(
+        `^(${RELEASE_NOTE_INLINE_FIELDS.join("|")}):(?:[ \\t]+(.*))?$`,
+      ),
     );
     if (inline) {
       const [, heading, value] = inline;
-      if (!sawDate) throw new Error("Release notes fields must follow the Date line");
-      if (!allowedSections.includes(heading)) {
-        throw new Error(`Release notes contain an unsupported section: ${heading}`);
-      }
+      if (!sawDate)
+        throw new Error("Release notes fields must follow the Date line");
       if (sections.has(heading)) {
         throw new Error(`Release notes contain duplicate section: ${heading}`);
       }
@@ -139,9 +150,12 @@ function noteSections(notes, allowedSections = RELEASE_NOTE_SECTIONS) {
     }
     const heading = line.match(/^## (.+)$/)?.[1];
     if (heading) {
-      if (!sawDate) throw new Error("Release note sections must follow the Date line");
+      if (!sawDate)
+        throw new Error("Release note sections must follow the Date line");
       if (!allowedSections.includes(heading)) {
-        throw new Error(`Release notes contain an unsupported section: ${heading}`);
+        throw new Error(
+          `Release notes contain an unsupported section: ${heading}`,
+        );
       }
       if (sections.has(heading)) {
         throw new Error(`Release notes contain duplicate section: ${heading}`);
@@ -156,7 +170,9 @@ function noteSections(notes, allowedSections = RELEASE_NOTE_SECTIONS) {
     } else if (!currentSection) {
       throw new Error("Release notes contain content outside a note section");
     } else if (inlineScalar) {
-      throw new Error("Inline release note fields must contain one line of text");
+      throw new Error(
+        "Inline release note fields must contain one line of text",
+      );
     } else {
       currentSection.push(line);
     }
@@ -169,7 +185,11 @@ function nonEmptyLines(lines) {
 }
 
 function assertReleaseNotes(rootDirectory, version, expectedImpact) {
-  const notesPath = join(rootDirectory, RELEASE_NOTES_DIRECTORY, `${version}.md`);
+  const notesPath = join(
+    rootDirectory,
+    RELEASE_NOTES_DIRECTORY,
+    `${version}.md`,
+  );
   assertNonEmptyFile(notesPath);
   const notes = readFileSync(notesPath, "utf8");
   const lines = notes.split(/\r?\n/);
@@ -177,7 +197,9 @@ function assertReleaseNotes(rootDirectory, version, expectedImpact) {
   const dateMatch = notes.match(/^Date: (\d{4}-\d{2}-\d{2})$/m);
   const releaseDate = dateMatch ? new Date(`${dateMatch[1]}T00:00:00Z`) : null;
   if (heading !== `# Release ${version}`) {
-    throw new Error(`Release notes heading must be # Release ${version}: ${notesPath}`);
+    throw new Error(
+      `Release notes heading must be # Release ${version}: ${notesPath}`,
+    );
   }
   if (
     !dateMatch ||
@@ -189,17 +211,32 @@ function assertReleaseNotes(rootDirectory, version, expectedImpact) {
   }
   const sections = noteSections(notes);
   const sectionNames = [...sections.keys()];
-  for (const required of ["Impact", "Rationale", "Summary", "User-visible changes"]) {
+  for (const required of [
+    "Impact",
+    "Rationale",
+    "Summary",
+    "User-visible changes",
+  ]) {
     if (!sections.has(required)) {
-      throw new Error(`Release notes must contain ## ${required}: ${notesPath}`);
+      const marker = RELEASE_NOTE_INLINE_FIELDS.includes(required)
+        ? `${required}:`
+        : `## ${required}`;
+      throw new Error(`Release notes must contain ${marker}: ${notesPath}`);
     }
     if (nonEmptyLines(sections.get(required)).length === 0) {
-      throw new Error(`Release notes ${required} must not be empty: ${notesPath}`);
+      throw new Error(
+        `Release notes ${required} must not be empty: ${notesPath}`,
+      );
     }
   }
   for (const section of sectionNames) {
-    if (!RELEASE_NOTE_CANONICAL_SECTIONS.includes(section)) {
-      throw new Error(`Release notes contain an unsupported section: ${section}`);
+    if (
+      !RELEASE_NOTE_CANONICAL_SECTIONS.includes(section) &&
+      !RELEASE_NOTE_INLINE_FIELDS.includes(section)
+    ) {
+      throw new Error(
+        `Release notes contain an unsupported section: ${section}`,
+      );
     }
   }
   const impactLines = nonEmptyLines(sections.get("Impact"));
@@ -218,61 +255,92 @@ function assertReleaseNotes(rootDirectory, version, expectedImpact) {
   if (impact === "major") {
     for (const required of ["Breaking changes", "Migration"]) {
       if (!sections.has(required)) {
-        throw new Error(`Major release notes must contain ## ${required}: ${notesPath}`);
+        throw new Error(
+          `Major release notes must contain ## ${required}: ${notesPath}`,
+        );
       }
       if (nonEmptyLines(sections.get(required)).length === 0) {
-        throw new Error(`Release notes ## ${required} must not be empty: ${notesPath}`);
+        throw new Error(
+          `Release notes ## ${required} must not be empty: ${notesPath}`,
+        );
       }
     }
   } else {
     for (const invalid of ["Breaking changes", "Migration"]) {
       if (sections.has(invalid)) {
-        throw new Error(`Release notes ## ${invalid} is only valid for major impact: ${notesPath}`);
+        throw new Error(
+          `Release notes ## ${invalid} is only valid for major impact: ${notesPath}`,
+        );
       }
     }
   }
 
   const sectionOrderMatches = RELEASE_NOTE_ORDERS.some((order) => {
     const indexes = sectionNames.map((section) => order.indexOf(section));
-    return indexes.every((index, position) =>
-      index !== -1 && index >= (indexes[position - 1] ?? -1),
+    return indexes.every(
+      (index, position) =>
+        index !== -1 && index >= (indexes[position - 1] ?? -1),
     );
   });
   if (!sectionOrderMatches) {
     throw new Error(`Release notes sections are out of order: ${notesPath}`);
   }
 
-  const concreteChange = (sections.get("User-visible changes") ?? []).some((line) => {
-    const text = line.match(/^\s*-\s+(.+?)\s*$/)?.[1];
-    return text !== undefined && text.length >= 9 && !NOTE_PLACEHOLDER.test(text);
-  });
+  const concreteChange = (sections.get("User-visible changes") ?? []).some(
+    (line) => {
+      const text = line.match(/^\s*-\s+(.+?)\s*$/)?.[1];
+      return (
+        text !== undefined && text.length >= 9 && !NOTE_PLACEHOLDER.test(text)
+      );
+    },
+  );
   if (!concreteChange) {
-    throw new Error(`Release notes must contain a concrete change: ${notesPath}`);
+    throw new Error(
+      `Release notes must contain a concrete change: ${notesPath}`,
+    );
   }
   return { notesPath, notes, impact };
 }
 
 function assertLegacyReleaseNotes(rootDirectory, version) {
-  const notesPath = join(rootDirectory, RELEASE_NOTES_DIRECTORY, `${version}.md`);
+  const notesPath = join(
+    rootDirectory,
+    RELEASE_NOTES_DIRECTORY,
+    `${version}.md`,
+  );
   assertNonEmptyFile(notesPath);
   const notes = readFileSync(notesPath, "utf8");
-  if (notes.split(/\r?\n/).find((line) => line.length > 0) !== `# Release ${version}`) {
-    throw new Error(`Release notes heading must be # Release ${version}: ${notesPath}`);
+  if (
+    notes.split(/\r?\n/).find((line) => line.length > 0) !==
+    `# Release ${version}`
+  ) {
+    throw new Error(
+      `Release notes heading must be # Release ${version}: ${notesPath}`,
+    );
   }
   const dateMatch = notes.match(/^Date: (\d{4}-\d{2}-\d{2})$/m);
   const releaseDate = dateMatch ? new Date(`${dateMatch[1]}T00:00:00Z`) : null;
-  if (!dateMatch || !releaseDate || Number.isNaN(releaseDate.valueOf()) ||
-      releaseDate.toISOString().slice(0, 10) !== dateMatch[1]) {
+  if (
+    !dateMatch ||
+    !releaseDate ||
+    Number.isNaN(releaseDate.valueOf()) ||
+    releaseDate.toISOString().slice(0, 10) !== dateMatch[1]
+  ) {
     throw new Error(`Release notes date is missing or invalid: ${notesPath}`);
   }
   const sections = noteSections(notes, LEGACY_RELEASE_NOTE_SECTIONS);
   const concreteChange = [...LEGACY_NOTE_CHANGE_SECTIONS].some((section) =>
     (sections.get(section) ?? []).some((line) => {
       const text = line.match(/^\s*-\s+(.+?)\s*$/)?.[1];
-      return text !== undefined && text.length >= 9 && !NOTE_PLACEHOLDER.test(text);
+      return (
+        text !== undefined && text.length >= 9 && !NOTE_PLACEHOLDER.test(text)
+      );
     }),
   );
-  if (!concreteChange) throw new Error(`Release notes must contain a concrete change: ${notesPath}`);
+  if (!concreteChange)
+    throw new Error(
+      `Release notes must contain a concrete change: ${notesPath}`,
+    );
   return { notesPath, notes, impact: undefined, legacy: true };
 }
 
@@ -296,13 +364,18 @@ export function classifyCommitImpact(message) {
     .slice(1)
     .map((line, index) => ({ line: line.trim(), index: index + 1 }))
     .filter(({ line }) => /^BREAKING(?: |-)CHANGE\b/i.test(line));
-  const footerStart = lines.findIndex((line, index) => index > 0 && line.trim() === "");
-  const breakingFooter = breakingMarkers.find(({ index }) =>
-    footerStart !== -1 && index > footerStart,
+  const footerStart = lines.findIndex(
+    (line, index) => index > 0 && line.trim() === "",
   );
-  if (breakingMarkers.length > 0 && (
-    breakingMarkers.length !== 1 || !breakingFooter || !BREAKING_FOOTER.test(breakingFooter.line)
-  )) {
+  const breakingFooter = breakingMarkers.find(
+    ({ index }) => footerStart !== -1 && index > footerStart,
+  );
+  if (
+    breakingMarkers.length > 0 &&
+    (breakingMarkers.length !== 1 ||
+      !breakingFooter ||
+      !BREAKING_FOOTER.test(breakingFooter.line))
+  ) {
     return "unknown";
   }
   const hasBreakingFooter = breakingFooter !== undefined;
@@ -349,7 +422,8 @@ function validateMetadata(rootDirectory) {
 }
 
 function stylesMode(stylesPolicy, requireStyles) {
-  const mode = requireStyles === false ? "optional" : stylesPolicy ?? "required";
+  const mode =
+    requireStyles === false ? "optional" : (stylesPolicy ?? "required");
   if (!["required", "optional"].includes(mode)) {
     throw new Error(`stylesPolicy must be required or optional: ${mode}`);
   }
@@ -376,7 +450,9 @@ export function validateRelease({
   const releaseVersion = expectedVersion ?? metadata.version;
   const legacyRequested = allowLegacyNotes || allowLegacy;
   if (legacyRequested && releaseVersion !== LEGACY_RELEASE_VERSION) {
-    throw new Error(`Legacy release notes are supported only for ${LEGACY_RELEASE_VERSION}`);
+    throw new Error(
+      `Legacy release notes are supported only for ${LEGACY_RELEASE_VERSION}`,
+    );
   }
   const mode = stylesMode(stylesPolicy, requireStyles);
   const assets = [...RELEASE_REQUIRED_ASSETS];
@@ -420,7 +496,9 @@ function assertKnownChanges(rootDirectory) {
   for (const line of gitStatus(rootDirectory).split(/\r?\n/).filter(Boolean)) {
     const path = line.slice(3);
     if (line[0] !== " " || !allowed.has(path)) {
-      throw new Error(`Release preparation changed an unexpected or staged file: ${path}`);
+      throw new Error(
+        `Release preparation changed an unexpected or staged file: ${path}`,
+      );
     }
   }
 }
@@ -446,10 +524,14 @@ function runChecks(rootDirectory) {
 }
 
 function snapshots(rootDirectory, paths) {
-  return new Map(paths.map((path) => [
-    path,
-    existsSync(join(rootDirectory, path)) ? readFileSync(join(rootDirectory, path)) : null,
-  ]));
+  return new Map(
+    paths.map((path) => [
+      path,
+      existsSync(join(rootDirectory, path))
+        ? readFileSync(join(rootDirectory, path))
+        : null,
+    ]),
+  );
 }
 
 function restore(rootDirectory, values) {
@@ -467,7 +549,9 @@ export function prepareRelease({
 } = {}) {
   const root = resolve(rootDirectory);
   if (!RELEASE_BUMP_IMPACTS.includes(impact)) {
-    throw new Error(`Release preparation requires explicit --impact: ${impact ?? "missing"}`);
+    throw new Error(
+      `Release preparation requires explicit --impact: ${impact ?? "missing"}`,
+    );
   }
   assertClean(root);
   const current = validateMetadata(root);
@@ -527,7 +611,9 @@ export function packageRelease({
     cwd: root,
     stdio: "inherit",
   });
-  const entries = execFileSync("unzip", ["-Z1", archivePath], { encoding: "utf8" })
+  const entries = execFileSync("unzip", ["-Z1", archivePath], {
+    encoding: "utf8",
+  })
     .trim()
     .split(/\r?\n/)
     .filter(Boolean);
@@ -535,7 +621,9 @@ export function packageRelease({
     entries.length !== metadata.assetNames.length ||
     entries.some((entry, index) => entry !== metadata.assetNames[index])
   ) {
-    throw new Error(`Release ZIP layout is not exactly ${metadata.assetNames.join(", ")}`);
+    throw new Error(
+      `Release ZIP layout is not exactly ${metadata.assetNames.join(", ")}`,
+    );
   }
   return { ...metadata, archivePath, entries };
 }
@@ -550,14 +638,20 @@ function cliArgs(args) {
   for (let index = 0; index < values.length; index += 1) {
     const argument = values[index];
     if (argument === "--impact") options.impact = values[++index];
-    else if (argument?.startsWith("--impact=")) options.impact = argument.slice(9);
+    else if (argument?.startsWith("--impact="))
+      options.impact = argument.slice(9);
     else if (argument === "--message" || argument === "--commit") {
       (options.messages ??= []).push(values[++index]);
-    } else if (argument?.startsWith("--message=") || argument?.startsWith("--commit=")) {
+    } else if (
+      argument?.startsWith("--message=") ||
+      argument?.startsWith("--commit=")
+    ) {
       (options.messages ??= []).push(argument.slice(argument.indexOf("=") + 1));
-    } else if (argument === "--styles-optional") options.stylesPolicy = "optional";
+    } else if (argument === "--styles-optional")
+      options.stylesPolicy = "optional";
     else if (argument === "--allow-legacy") options.allowLegacyNotes = true;
-    else if (argument?.startsWith("-")) throw new Error(`Unknown release option: ${argument}`);
+    else if (argument?.startsWith("-"))
+      throw new Error(`Unknown release option: ${argument}`);
     else positional.push(argument);
   }
   return { command, positional, options };
@@ -570,20 +664,29 @@ function runCli() {
     return;
   }
   if (command === "prepare") {
-    if (positional.length) throw new Error("prepare accepts impact only through --impact");
-    console.log(`Release preparation complete -> ${prepareRelease({ impact: options.impact }).version}`);
+    if (positional.length)
+      throw new Error("prepare accepts impact only through --impact");
+    console.log(
+      `Release preparation complete -> ${prepareRelease({ impact: options.impact }).version}`,
+    );
     return;
   }
   const expectedVersion = positional[0];
   if (command === "validate") {
-    console.log(`Release validation passed for ${validateRelease({ expectedVersion, stylesPolicy: options.stylesPolicy, allowLegacyNotes: options.allowLegacyNotes }).version}`);
+    console.log(
+      `Release validation passed for ${validateRelease({ expectedVersion, stylesPolicy: options.stylesPolicy, allowLegacyNotes: options.allowLegacyNotes }).version}`,
+    );
     return;
   }
   if (command === "package") {
-    console.log(`Release package created -> ${packageRelease({ expectedVersion, outputPath: positional[1], stylesPolicy: options.stylesPolicy, allowLegacyNotes: options.allowLegacyNotes }).archivePath}`);
+    console.log(
+      `Release package created -> ${packageRelease({ expectedVersion, outputPath: positional[1], stylesPolicy: options.stylesPolicy, allowLegacyNotes: options.allowLegacyNotes }).archivePath}`,
+    );
     return;
   }
-  throw new Error(`Unknown release command: ${command}. Use classify, prepare, validate, or package.`);
+  throw new Error(
+    `Unknown release command: ${command}. Use classify, prepare, validate, or package.`,
+  );
 }
 
 if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) runCli();
