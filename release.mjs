@@ -19,7 +19,7 @@ export const RELEASE_IMPACTS = ["patch", "minor", "major"];
 export const SEMVER_TAG_PATTERN =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 
-const NOTE_PLACEHOLDER = /^(?:user-visible (?:addition|behavior change|bug fix|change)|documentation-only user-facing change|required only when applicable|update|todo)\.?$/iu;
+const NOTE_PLACEHOLDER = /^(?:user-visible (?:addition|behavior change|bug fix|change|changes)|documentation-only user-facing change|required only when applicable|update|todo)\.?$/iu;
 const COMMIT_HEADER = /^([a-z]+)(?:\([^\r\n()]+\))?(!)?:\s+\S/i;
 const BREAKING_FOOTER = /^BREAKING(?: |-)CHANGE\s*:\s*\S.*$/i;
 const COMMIT_IMPACTS = new Map([
@@ -39,6 +39,7 @@ const RELEASE_NOTE_SECTIONS = [
   "Summary",
   "Impact",
   "Rationale",
+  "User-visible changes",
   "Added",
   "Changed",
   "Fixed",
@@ -47,6 +48,7 @@ const RELEASE_NOTE_SECTIONS = [
   "Documentation",
 ];
 const RELEASE_NOTE_CHANGE_SECTIONS = new Set([
+  "User-visible changes",
   "Added",
   "Changed",
   "Fixed",
@@ -121,7 +123,6 @@ function assertReleaseNotes(rootDirectory, version, expectedImpact) {
   ) {
     throw new Error(`Release notes date is missing or invalid: ${notesPath}`);
   }
-
   const sections = noteSections(notes);
   const sectionIndexes = [...sections.keys()].map((section) =>
     RELEASE_NOTE_SECTIONS.indexOf(section),
@@ -137,7 +138,6 @@ function assertReleaseNotes(rootDirectory, version, expectedImpact) {
       throw new Error(`Release notes ## ${required} must not be empty: ${notesPath}`);
     }
   }
-
   const impactLines = nonEmptyLines(sections.get("Impact"));
   const impact = impactLines.length === 1 ? impactLines[0] : null;
   if (!RELEASE_IMPACTS.includes(impact)) {
@@ -160,8 +160,12 @@ function assertReleaseNotes(rootDirectory, version, expectedImpact) {
         throw new Error(`Release notes ## ${required} must not be empty: ${notesPath}`);
       }
     }
-  } else if (sections.has("Migration")) {
-    throw new Error(`Release notes ## Migration is only valid for major impact: ${notesPath}`);
+  } else {
+    for (const invalid of ["Breaking changes", "Migration"]) {
+      if (sections.has(invalid)) {
+        throw new Error(`Release notes ## ${invalid} is only valid for major impact: ${notesPath}`);
+      }
+    }
   }
 
   const concreteChange = [...RELEASE_NOTE_CHANGE_SECTIONS].some((section) =>
@@ -192,9 +196,20 @@ export function classifyCommitImpact(message) {
   const lines = message.split(/\r?\n/);
   const match = lines[0].trim().match(COMMIT_HEADER);
   if (!match || !COMMIT_IMPACTS.has(match[1].toLowerCase())) return "unknown";
+  const breakingMarkers = lines
+    .slice(1)
+    .map((line, index) => ({ line: line.trim(), index: index + 1 }))
+    .filter(({ line }) => /^BREAKING(?: |-)CHANGE\b/i.test(line));
   const footerStart = lines.findIndex((line, index) => index > 0 && line.trim() === "");
-  const hasBreakingFooter = footerStart !== -1 &&
-    lines.slice(footerStart + 1).some((line) => BREAKING_FOOTER.test(line.trim()));
+  const breakingFooter = breakingMarkers.find(({ index }) =>
+    footerStart !== -1 && index > footerStart,
+  );
+  if (breakingMarkers.length > 0 && (
+    breakingMarkers.length !== 1 || !breakingFooter || !BREAKING_FOOTER.test(breakingFooter.line)
+  )) {
+    return "unknown";
+  }
+  const hasBreakingFooter = breakingFooter !== undefined;
   if (match[2] === "!" || hasBreakingFooter) {
     return "major";
   }

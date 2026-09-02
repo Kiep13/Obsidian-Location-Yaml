@@ -102,8 +102,9 @@ corepack pnpm lint
 
 Before every release, add notes to `docs/releases/<X.Y.Z>.md` with the exact
 heading/date plus non-empty `Summary`, `Impact`, and `Rationale` sections. Add
-at least one concrete change bullet; `major` notes also require `Breaking
-changes` and `Migration`. Use the same notes as the GitHub Release body; the
+at least one concrete user-visible change bullet; `major` notes also require
+`Breaking changes` and `Migration`, while those sections are invalid for other
+impacts. Use the same notes as the GitHub Release body; the
 full release process is documented in [`docs/RELEASE.md`](docs/RELEASE.md).
 
 This repository publishes tagged GitHub Releases for BRAT through GitHub

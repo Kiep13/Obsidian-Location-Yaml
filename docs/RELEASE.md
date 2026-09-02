@@ -69,6 +69,10 @@ patch
 
 Evidence supporting the selected impact and compatibility claim.
 
+## User-visible changes
+
+- Concrete user-visible change.
+
 ## Added
 
 - User-visible addition.
@@ -96,9 +100,10 @@ Evidence supporting the selected impact and compatibility claim.
 
 `Summary`, `Impact`, and `Rationale` are required and must be non-empty;
 `Impact` must be exactly `major`, `minor`, or `patch` and must match the impact
-passed to `release:prepare`. Keep only non-empty change categories and include
-at least one concrete user-visible bullet. Major notes must also contain
-non-empty `Breaking changes` and `Migration` sections. The file name,
+passed to `release:prepare`. `User-visible changes` and the category sections
+are optional, but at least one of them must contain a concrete user-visible
+bullet. Major notes must also contain non-empty `Breaking changes` and
+`Migration` sections; those sections are invalid for other impacts. The file name,
 `Release X.Y.Z` heading, and ISO date must match the version being released.
 The GitHub Release body must use the same text. Automatically generated
 GitHub notes do not replace these authored release notes, and a generic body

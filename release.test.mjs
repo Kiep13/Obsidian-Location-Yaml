@@ -155,6 +155,8 @@ describe("release validation", () => {
     ["build: refresh generated assets", "none"],
     ["refactor: simplify release code", "none"],
     ["style: format release code", "none"],
+    ["feat: add a command\n\nBREAKING CHANGE:", "unknown"],
+    ["feat: add a command\nBREAKING CHANGE: migrate old notes", "unknown"],
   ])("classifies %s as %s", (message, impact) => {
     expect(classifyCommitImpact(message)).toBe(impact);
   });
@@ -300,6 +302,27 @@ describe("release validation", () => {
     expect(() =>
       validateRelease({ rootDirectory: invalidRoot, expectedVersion: "1.2.3" }),
     ).toThrow("Major release notes must contain ## Migration");
+  });
+
+  it("accepts User-visible changes as the concrete change section", () => {
+    const rootDirectory = createFixture({
+      releaseNotes: validReleaseNotes("1.2.3").replace(
+        "## Fixed\n\n- Corrected a user-visible release behavior.",
+        "## User-visible changes\n\n- Added a visible location suggestion command.",
+      ),
+    });
+
+    expect(validateRelease({ rootDirectory, expectedVersion: "1.2.3" }).impact).toBe("patch");
+  });
+
+  it("rejects breaking changes sections for non-major notes", () => {
+    const rootDirectory = createFixture({
+      releaseNotes: validReleaseNotes("1.2.3")
+        .replace("## Fixed", "## Breaking changes\n\n- Removed the old location format.\n\n## Fixed"),
+    });
+
+    expect(() => validateRelease({ rootDirectory, expectedVersion: "1.2.3" }))
+      .toThrow("## Breaking changes is only valid for major impact");
   });
 
   it("rejects a manifest id that does not identify this plugin", () => {
