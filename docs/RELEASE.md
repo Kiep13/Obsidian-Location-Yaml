@@ -33,19 +33,25 @@ classification must describe the user-visible effect in the authored notes;
 `unknown` must be resolved explicitly before selecting a version. The
 `release:classify` command uses this exact interface: `breaking`, a `!` header,
 or a `BREAKING CHANGE:`/`BREAKING-CHANGE:` footer returns `major`; `feat`
-returns `minor`; `fix` and `perf` return `patch`; `docs`, `test`, `chore`,
+returns `minor`; `fix` and `perf` return `patch`; `docs`, `test`, `tests`, `chore`,
 `ci`, `build`, `refactor`, and `style` return `none`. A malformed non-empty
 message returns `unknown`, and any `unknown` in a mixed input blocks the result.
 Breaking footers must be well-formed and terminal; malformed or nonterminal
 breaking footer evidence returns `unknown`, even when the header contains `!`.
 Structured records with `message`, `commit`, or `raw`, and records split into
 `header`, `body`, and `footer`, are normalized with the same text semantics as
-raw commit messages. `messages` and `commits` arrays may contain those records.
+raw commit messages. `messages` and `commits` arrays may contain those records;
+multiple wrapper arrays are aggregated, and malformed wrapper fields make the
+whole result `unknown`.
 The classifier does not change files or select a version for the maintainer:
 
 ```bash
 corepack pnpm run release:classify -- --message "fix: refresh location usage"
 ```
+
+Without explicit messages, `release:classify` reads the repository's Git
+history. Explicit `--message` and `--commit` options override that history and
+may be repeated for mixed-input classification.
 
 The version mapping is exact for every `X.Y.Z`, including `0.x`: `major` is
 `(X+1).0.0`, `minor` is `X.(Y+1).0`, and `patch` is `X.Y.(Z+1)`.
@@ -149,7 +155,8 @@ The Release body is always read from the tagged
 `docs/releases/<X.Y.Z>.md` file; generated notes are not used. A final workflow
 step verifies the published tag name, authored body, draft/prerelease status,
 non-empty `publishedAt`, exact asset names, and non-zero asset sizes through the
-GitHub Release API.
+GitHub Release API, downloads every asset to compare checksums, and checks the
+remote tag target again after all publication checks.
 
 Before pushing a tag, confirm:
 

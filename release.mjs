@@ -35,6 +35,7 @@ const COMMIT_IMPACTS = new Map([
   ["perf", "patch"],
   ["docs", "none"],
   ["test", "none"],
+  ["tests", "none"],
   ["chore", "none"],
   ["ci", "none"],
   ["build", "none"],
@@ -356,46 +357,121 @@ function assertPublishableImpact(impact, notesPath) {
   }
 }
 
-function structuredCommitMessage(input) {
-  if (!input || typeof input !== "object" || Array.isArray(input))
-    return undefined;
-  for (const field of ["message", "commit", "raw"]) {
-    if (typeof input[field] === "string") return input[field];
+function normalizeStructuredCommit(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { recognized: true, message: undefined, malformed: true };
   }
-  if (typeof input.header !== "string") return undefined;
-  if (
-    (input.body !== undefined && typeof input.body !== "string") ||
-    (input.footer !== undefined && typeof input.footer !== "string")
-  ) {
-    return undefined;
+
+  const messageFields = ["message", "commit", "raw"].filter((field) =>
+    Object.hasOwn(input, field),
+  );
+  const parts = ["header", "body", "footer"].filter((field) =>
+    Object.hasOwn(input, field),
+  );
+  const wrapperFields = ["messages", "commits"].filter((field) =>
+    Object.hasOwn(input, field),
+  );
+
+  if (messageFields.length > 0) {
+    if (
+      messageFields.length !== 1 ||
+      parts.length > 0 ||
+      wrapperFields.length > 0 ||
+      typeof input[messageFields[0]] !== "string"
+    ) {
+      return { recognized: true, message: undefined, malformed: true };
+    }
+    return {
+      recognized: true,
+      message: input[messageFields[0]],
+      malformed: false,
+    };
   }
-  return [input.header, input.body, input.footer]
-    .filter((part) => part !== undefined && part !== "")
-    .join("\n\n");
+
+  if (parts.length > 0) {
+    if (
+      !Object.hasOwn(input, "header") ||
+      typeof input.header !== "string" ||
+      wrapperFields.length > 0 ||
+      (input.body !== undefined && typeof input.body !== "string") ||
+      (input.footer !== undefined && typeof input.footer !== "string")
+    ) {
+      return { recognized: true, message: undefined, malformed: true };
+    }
+    return {
+      recognized: true,
+      message: [input.header, input.body, input.footer]
+        .filter((part) => part !== undefined && part !== "")
+        .join("\n\n"),
+      malformed: false,
+    };
+  }
+
+  return { recognized: false, message: undefined, malformed: false };
 }
 
-function flattenMessageInputs(inputs) {
-  return inputs.flatMap((input) => {
-    const messages = messagesFrom(input);
-    return messages.length > 0 ? messages : [input];
-  });
+function normalizedMessages(input) {
+  if (typeof input === "string") {
+    return { messages: [input], malformed: false };
+  }
+  if (Array.isArray(input)) {
+    return input.reduce(
+      (result, item) => {
+        const normalized = normalizedMessages(item);
+        result.messages.push(...normalized.messages);
+        result.malformed ||= normalized.malformed;
+        return result;
+      },
+      { messages: [], malformed: false },
+    );
+  }
+  if (input && typeof input === "object") {
+    const structured = normalizeStructuredCommit(input);
+    if (structured.recognized) {
+      if (structured.message !== undefined) {
+        return { messages: [structured.message], malformed: false };
+      }
+      const wrapperResults = ["messages", "commits"]
+        .filter((field) => Array.isArray(input[field]))
+        .map((field) => normalizedMessages(input[field]));
+      return {
+        messages: wrapperResults.flatMap((result) => result.messages),
+        malformed: true,
+      };
+    }
+
+    const wrapperFields = ["messages", "commits"].filter((field) =>
+      Object.hasOwn(input, field),
+    );
+    if (wrapperFields.length > 0) {
+      const wrapperResults = wrapperFields.map((field) =>
+        Array.isArray(input[field])
+          ? normalizedMessages(input[field])
+          : { messages: [], malformed: true },
+      );
+      return {
+        messages: wrapperResults.flatMap((result) => result.messages),
+        malformed: wrapperResults.some((result) => result.malformed),
+      };
+    }
+  }
+  return { messages: [], malformed: true };
 }
 
 function messagesFrom(input) {
-  if (typeof input === "string") return [input];
-  if (Array.isArray(input)) return flattenMessageInputs(input);
-  if (input && typeof input === "object") {
-    const structuredMessage = structuredCommitMessage(input);
-    if (structuredMessage !== undefined) return [structuredMessage];
-    if (Array.isArray(input.messages))
-      return flattenMessageInputs(input.messages);
-    if (Array.isArray(input.commits))
-      return flattenMessageInputs(input.commits);
-  }
-  return [];
+  const normalized = normalizedMessages(input);
+  return normalized.malformed
+    ? [...normalized.messages, undefined]
+    : normalized.messages;
 }
 
 export function classifyCommitImpact(message) {
+  if (typeof message !== "string") {
+    const normalized = normalizeStructuredCommit(message);
+    if (normalized.malformed || normalized.message === undefined)
+      return "unknown";
+    message = normalized.message;
+  }
   if (typeof message !== "string" || message.trim() === "") return "unknown";
   const lines = message.split(/\r?\n/);
   const match = lines[0].trim().match(COMMIT_HEADER);
@@ -437,6 +513,20 @@ export function classifyReleaseImpact(input) {
 }
 
 export const classifyImpact = classifyReleaseImpact;
+
+function repositoryHistoryMessages(rootDirectory = process.cwd()) {
+  try {
+    return execFileSync("git", ["log", "--format=%B%x00"], {
+      cwd: rootDirectory,
+      encoding: "utf8",
+    })
+      .split("\0")
+      .map((message) => message.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 
 function validateMetadata(rootDirectory) {
   const packageJson = readJson(join(rootDirectory, "package.json"));
@@ -767,7 +857,15 @@ function cliArgs(args) {
 function runCli() {
   const { command, positional, options } = cliArgs(process.argv.slice(2));
   if (command === "classify") {
-    console.log(classifyReleaseImpact(options.messages ?? positional));
+    const suppliedMessages = [
+      ...(options.messages ?? []),
+      ...positional,
+    ];
+    const messages =
+      suppliedMessages.length > 0
+        ? suppliedMessages
+        : repositoryHistoryMessages();
+    console.log(classifyReleaseImpact(messages));
     return;
   }
   if (command === "prepare") {

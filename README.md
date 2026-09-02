@@ -137,19 +137,25 @@ Choose the impact before preparing a release. The policy is:
 For mixed changes, the highest applicable impact wins; `unknown` is a blocker.
 The classifier uses the same fixed vocabulary as the release helper: `breaking`,
 a `!` header, or a `BREAKING CHANGE:`/`BREAKING-CHANGE:` footer means `major`;
-`feat` means `minor`; `fix`/`perf` mean `patch`; `docs`/`test`/`chore`/`ci`/
-`build`/`refactor`/`style` mean `none`. A malformed non-empty message means
+`feat` means `minor`; `fix`/`perf` mean `patch`; `docs`/`test`/`tests`/`chore`/
+`ci`/`build`/`refactor`/`style` mean `none`. A malformed non-empty message means
 `unknown`; any unknown in mixed input blocks the result. The classifier is
 advisory—the maintainer still supplies the selected impact explicitly. Breaking
 footers must be well-formed and terminal; malformed or nonterminal breaking
 footer evidence returns `unknown`, even when the header contains `!`.
 Structured records with `message`, `commit`, or `raw`, and records split into
 `header`, `body`, and `footer`, are normalized with the same text semantics as
-raw commit messages. `messages` and `commits` arrays may contain those records:
+raw commit messages. `messages` and `commits` arrays may contain those records;
+multiple wrapper arrays are aggregated, and malformed wrapper fields make the
+whole result `unknown`:
 
 ```bash
 corepack pnpm run release:classify -- --message "fix: refresh location usage"
 ```
+
+When no messages are supplied, `release:classify` classifies the repository's
+Git history. Explicit `--message` and `--commit` options override that history
+and may be repeated to classify a mixed input.
 
 The version mapping is exact for all `X.Y.Z`, including `0.x`: `major` becomes
 `(X+1).0.0`, `minor` becomes `X.(Y+1).0`, and `patch` becomes `X.Y.(Z+1)`.

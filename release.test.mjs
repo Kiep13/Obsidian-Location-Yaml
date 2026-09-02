@@ -57,6 +57,18 @@ function runClassifier(...args) {
   ).trim();
 }
 
+function runClassifierAt(rootDirectory, ...args) {
+  return execFileSync(
+    process.execPath,
+    [
+      fileURLToPath(new URL("./release.mjs", import.meta.url)),
+      "classify",
+      ...args,
+    ],
+    { cwd: rootDirectory, encoding: "utf8" },
+  ).trim();
+}
+
 function createFixture({
   packageVersion = "1.2.3",
   manifestId = "obsidian-location",
@@ -213,6 +225,7 @@ describe("release validation", () => {
     ["perf: speed up location lookup", "patch"],
     ["docs: clarify the release process", "none"],
     ["test: add classifier coverage", "none"],
+    ["tests: add classifier coverage", "none"],
     ["chore: update development tooling", "none"],
     ["ci: update workflow", "none"],
     ["build: refresh generated assets", "none"],
@@ -273,6 +286,77 @@ describe("release validation", () => {
     expect(classifyReleaseImpact({ commit: "fix: refresh usage" })).toBe(
       "patch",
     );
+    expect(classifyCommitImpact({ message: "fix: refresh usage" })).toBe(
+      "patch",
+    );
+  });
+
+  it("aggregates wrapper arrays and makes malformed wrapper fields unknown", () => {
+    expect(
+      classifyReleaseImpact({
+        messages: ["docs: clarify the release process"],
+        commits: ["fix: refresh location usage"],
+      }),
+    ).toBe("patch");
+    expect(
+      classifyReleaseImpact({
+        messages: ["fix: refresh location usage"],
+        commits: ["feat: add a location command"],
+      }),
+    ).toBe("minor");
+    expect(
+      classifyReleaseImpact({
+        messages: ["fix: refresh location usage"],
+        commits: ["ambiguous change"],
+      }),
+    ).toBe("unknown");
+    expect(
+      classifyReleaseImpact({ messages: "fix: refresh location usage" }),
+    ).toBe("unknown");
+    expect(
+      classifyReleaseImpact({
+        messages: ["fix: refresh location usage"],
+        commits: "feat: add a location command",
+      }),
+    ).toBe("unknown");
+    expect(classifyReleaseImpact({ message: "fix: refresh", raw: 42 })).toBe(
+      "unknown",
+    );
+  });
+
+  it("uses explicit CLI messages and falls back to repository history", () => {
+    const rootDirectory = mkdtempSync(
+      join(tmpdir(), "obsidian-location-history-"),
+    );
+    temporaryDirectories.push(rootDirectory);
+    writeFileSync(join(rootDirectory, "main.js"), "fixture");
+    execFileSync("git", ["init", "-q"], { cwd: rootDirectory });
+    for (const [index, message] of [
+      "feat: add a location command",
+      "docs: clarify the release process",
+    ].entries()) {
+      writeFileSync(join(rootDirectory, "main.js"), `fixture-${index}`);
+      execFileSync("git", ["add", "--", "main.js"], { cwd: rootDirectory });
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Release fixture",
+          "-c",
+          "user.email=release-fixture@example.com",
+          "commit",
+          "-q",
+          "-m",
+          message,
+        ],
+        { cwd: rootDirectory },
+      );
+    }
+
+    expect(runClassifierAt(rootDirectory)).toBe("minor");
+    expect(
+      runClassifierAt(rootDirectory, "--message", "fix: refresh location usage"),
+    ).toBe("patch");
   });
 
   it.each([

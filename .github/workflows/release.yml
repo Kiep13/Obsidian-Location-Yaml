@@ -217,3 +217,13 @@ jobs:
           zip_name="$(basename "$ZIP_PATH")"
           test "$(sha256sum "$ZIP_PATH" | awk '{print $1}')" = \
             "$(sha256sum "$DOWNLOAD_DIR/$zip_name" | awk '{print $1}')"
+
+          tag_ref="refs/tags/$GITHUB_REF_NAME"
+          final_tag_target="$(git rev-parse --verify "$tag_ref^{}")"
+          final_remote_refs="$(git ls-remote --exit-code origin "$tag_ref" "$tag_ref^{}")"
+          final_remote_target="$(awk -v ref="$tag_ref^{}" '$2 == ref { print $1; exit }' <<<"$final_remote_refs")"
+          if [[ -z "$final_remote_target" ]]; then
+            final_remote_target="$(awk -v ref="$tag_ref" '$2 == ref { print $1; exit }' <<<"$final_remote_refs")"
+          fi
+          test -n "$final_remote_target"
+          test "$final_remote_target" = "$final_tag_target"
