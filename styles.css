@@ -64,24 +64,22 @@
 }
 
 .location-modal-suggestion::after {
-  display: inline-flex;
   position: absolute;
-  top: 0.35rem;
+  top: 0.25rem;
   right: 0.45rem;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.15rem;
-  height: 1.15rem;
-  padding: 0 0.25rem;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 999px;
-  background: var(--background-secondary);
   color: var(--text-muted);
   content: attr(data-shortcut);
-  font-size: var(--font-ui-small);
+  font-size: 0.75em;
   font-weight: 600;
   line-height: 1;
+  opacity: 0;
   pointer-events: none;
+  visibility: hidden;
+}
+
+.location-modal-suggestions:focus-within .location-modal-suggestion::after {
+  opacity: 1;
+  visibility: visible;
 }
 
 .location-modal-suggestion.is-active {
