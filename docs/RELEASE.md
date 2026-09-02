@@ -36,7 +36,12 @@ or a `BREAKING CHANGE:`/`BREAKING-CHANGE:` footer returns `major`; `feat`
 returns `minor`; `fix` and `perf` return `patch`; `docs`, `test`, `chore`,
 `ci`, `build`, `refactor`, and `style` return `none`. A malformed non-empty
 message returns `unknown`, and any `unknown` in a mixed input blocks the result.
-It does not change files or select a version for the maintainer:
+Breaking footers must be well-formed and terminal; malformed or nonterminal
+breaking footer evidence returns `unknown`, even when the header contains `!`.
+Structured records with `message`, `commit`, or `raw`, and records split into
+`header`, `body`, and `footer`, are normalized with the same text semantics as
+raw commit messages. `messages` and `commits` arrays may contain those records.
+The classifier does not change files or select a version for the maintainer:
 
 ```bash
 corepack pnpm run release:classify -- --message "fix: refresh location usage"
@@ -73,9 +78,12 @@ One or two sentences describing the user-visible result.
 `Summary` and `User-visible changes` are required sections; `Impact:` and
 `Rationale:` are required non-empty inline fields. The inline fields must appear
 before the `Summary` section, and `Summary` must be followed by `User-visible
-changes`. `Impact` must be exactly `major`, `minor`, or `patch` and must match
-the impact passed to `release:prepare`. `User-visible changes` must contain a
-concrete bullet. For a `major` release, append non-empty
+changes`. The canonical note grammar accepts `major`, `minor`, `patch`, `none`,
+or `unknown`; `none` and `unknown` are reserved for recorded decisions or
+blocked preparation. Release validation and packaging separately block those
+two non-publishable impacts, while publishable notes must use exactly `major`,
+`minor`, or `patch` and must match the impact passed to `release:prepare`.
+`User-visible changes` must contain a concrete bullet. For a `major` release, append non-empty
 `Breaking changes` and `Migration` sections in that order; those two sections
 are invalid for other impacts. Other sections are not part of the canonical
 grammar. The file name,
@@ -139,8 +147,9 @@ non-empty regular file and checks a tracked optional stylesheet when present;
 it does not treat size alone as provenance evidence.
 The Release body is always read from the tagged
 `docs/releases/<X.Y.Z>.md` file; generated notes are not used. A final workflow
-step verifies the published tag name, authored body, exact asset names, and
-non-zero asset sizes through the GitHub Release API.
+step verifies the published tag name, authored body, draft/prerelease status,
+non-empty `publishedAt`, exact asset names, and non-zero asset sizes through the
+GitHub Release API.
 
 Before pushing a tag, confirm:
 

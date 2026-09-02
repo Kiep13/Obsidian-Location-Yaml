@@ -177,7 +177,7 @@ jobs:
           RELEASE_JSON: release-verification.json
         run: |
           set -euo pipefail
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,body,assets,isDraft,isPrerelease > "$RELEASE_JSON"
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,body,assets,isDraft,isPrerelease,publishedAt > "$RELEASE_JSON"
 
           test "$(jq -r '.tagName' "$RELEASE_JSON")" = "$GITHUB_REF_NAME"
           RELEASE_BODY_PATH="$(mktemp)"
@@ -189,6 +189,7 @@ jobs:
           fi
           test "$(jq -r '.isDraft' "$RELEASE_JSON")" = "false"
           test "$(jq -r '.isPrerelease' "$RELEASE_JSON")" = "false"
+          test -n "$(jq -r '.publishedAt // empty' "$RELEASE_JSON")"
 
           mapfile -t release_asset_names < <(jq -r '.assets[].name' "$RELEASE_JSON")
           expected_release_assets=(main.js manifest.json styles.css "obsidian-location-${GITHUB_REF_NAME}.zip")

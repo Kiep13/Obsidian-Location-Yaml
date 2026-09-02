@@ -248,6 +248,59 @@ describe("release validation", () => {
     },
   );
 
+  it("normalizes structured classifier inputs with the same text semantics", () => {
+    const message =
+      "feat: add a location command\n\nDocument the new command.\n\nBREAKING CHANGE: migrate old notes";
+
+    expect(
+      classifyReleaseImpact({
+        header: "feat: add a location command",
+        body: "Document the new command.",
+        footer: "BREAKING CHANGE: migrate old notes",
+      }),
+    ).toBe(classifyReleaseImpact(message));
+    expect(
+      classifyReleaseImpact({
+        commits: [{ message }, { commit: "fix: typo" }],
+      }),
+    ).toBe("major");
+    expect(
+      classifyReleaseImpact({ messages: [{ raw: "fix: refresh usage" }] }),
+    ).toBe("patch");
+    expect(
+      classifyReleaseImpact({ commits: [{ header: "fix: refresh usage" }] }),
+    ).toBe("patch");
+    expect(classifyReleaseImpact({ commit: "fix: refresh usage" })).toBe(
+      "patch",
+    );
+  });
+
+  it.each([
+    ["feat!: add a location command\n\nBREAKING CHANGE:", "malformed"],
+    [
+      "feat!: add a location command\n\nBREAKING CHANGE: migrate old notes\n\nRefs: #1",
+      "nonterminal",
+    ],
+    [
+      "feat!: add a location command\n\nBREAKING CHANGE: migrate old notes\ncontinuation",
+      "nonterminal",
+    ],
+    [
+      "feat!: add a location command\nBREAKING CHANGE: migrate old notes",
+      "non-footer",
+    ],
+  ])("gives %s breaking footer evidence unknown precedence", (message) => {
+    expect(classifyCommitImpact(message)).toBe("unknown");
+  });
+
+  it("accepts a terminal breaking footer after trailing blank lines", () => {
+    expect(
+      classifyCommitImpact(
+        "feat: add a location command\n\nBREAKING CHANGE: migrate old notes\n\n",
+      ),
+    ).toBe("major");
+  });
+
   it("classifies mixed changes by the highest impact and blocks unknown evidence", () => {
     expect(
       classifyReleaseImpact([
@@ -291,8 +344,7 @@ describe("release validation", () => {
   });
 
   it("increments arbitrarily large semver components without precision loss", () => {
-    const current =
-      "9007199254740992.9007199254740992.9007199254740992";
+    const current = "9007199254740992.9007199254740992.9007199254740992";
 
     expect(nextVersion(current, "major")).toBe("9007199254740993.0.0");
     expect(nextVersion(current, "minor")).toBe(
@@ -333,6 +385,19 @@ describe("release validation", () => {
     expect(result).toMatchObject({ impact: "patch" });
     expect(result.legacy).toBeUndefined();
   });
+
+  it.each(["none", "unknown"])(
+    "recognizes canonical %s notes before blocking publication",
+    (impact) => {
+      const rootDirectory = createFixture({
+        releaseNotes: inlineReleaseNotes("1.2.3", impact),
+      });
+
+      expect(() =>
+        validateRelease({ rootDirectory, expectedVersion: "1.2.3" }),
+      ).toThrow(`Impact (${impact}) is not publishable`);
+    },
+  );
 
   it.each([
     ["Impact", ""],
@@ -671,7 +736,7 @@ describe("release validation", () => {
     );
     expect(workflow).toContain("--verify-tag");
     expect(workflow).toContain(
-      'gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,body,assets,isDraft,isPrerelease',
+      'gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,body,assets,isDraft,isPrerelease,publishedAt',
     );
     expect(workflow).toContain(
       "mapfile -t release_asset_names < <(jq -r '.assets[].name' \"$RELEASE_JSON\")",
@@ -685,6 +750,9 @@ describe("release validation", () => {
     );
     expect(workflow).toContain("jq -r '.isDraft' \"$RELEASE_JSON\"");
     expect(workflow).toContain("jq -r '.isPrerelease' \"$RELEASE_JSON\"");
+    expect(workflow).toContain(
+      "jq -r '.publishedAt // empty' \"$RELEASE_JSON\"",
+    );
     expect(workflow).toContain(
       'git ls-remote --exit-code origin "$tag_ref" "$tag_ref^{}"',
     );

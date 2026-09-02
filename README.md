@@ -105,7 +105,10 @@ heading/date, non-empty `Summary` and `User-visible changes` sections, and
 non-empty `Impact:` and `Rationale:` inline fields. Add at least one concrete
 user-visible change bullet; `major` notes also require
 `Breaking changes` and `Migration`, while those sections are invalid for other
-impacts. Use the same notes as the GitHub Release body; the
+impacts. The canonical note grammar uses the full classifier vocabulary,
+including `none` and `unknown` for recorded decisions or blocked preparation;
+release validation, packaging, and workflow publication separately require a
+publishable `major`, `minor`, or `patch` impact. Use the same notes as the GitHub Release body; the
 full release process is documented in [`docs/RELEASE.md`](docs/RELEASE.md).
 
 This repository publishes tagged GitHub Releases for BRAT through GitHub
@@ -137,7 +140,12 @@ a `!` header, or a `BREAKING CHANGE:`/`BREAKING-CHANGE:` footer means `major`;
 `feat` means `minor`; `fix`/`perf` mean `patch`; `docs`/`test`/`chore`/`ci`/
 `build`/`refactor`/`style` mean `none`. A malformed non-empty message means
 `unknown`; any unknown in mixed input blocks the result. The classifier is
-advisory—the maintainer still supplies the selected impact explicitly:
+advisory—the maintainer still supplies the selected impact explicitly. Breaking
+footers must be well-formed and terminal; malformed or nonterminal breaking
+footer evidence returns `unknown`, even when the header contains `!`.
+Structured records with `message`, `commit`, or `raw`, and records split into
+`header`, `body`, and `footer`, are normalized with the same text semantics as
+raw commit messages. `messages` and `commits` arrays may contain those records:
 
 ```bash
 corepack pnpm run release:classify -- --message "fix: refresh location usage"

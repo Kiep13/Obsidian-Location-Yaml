@@ -26,6 +26,7 @@ export const SEMVER_TAG_PATTERN =
 const NOTE_PLACEHOLDER =
   /^(?:user-visible (?:addition|behavior change|bug fix|change|changes)|documentation-only user-facing change|required only when applicable|update|todo)\.?$/iu;
 const COMMIT_HEADER = /^([a-z]+)(?:\([^\r\n()]+\))?(!)?: [^\s\r\n].*$/i;
+const BREAKING_MARKER = /^BREAKING(?: |-)CHANGE\b/i;
 const BREAKING_FOOTER = /^BREAKING(?: |-)CHANGE\s*:\s*\S.*$/i;
 const COMMIT_IMPACTS = new Map([
   ["breaking", "major"],
@@ -244,9 +245,9 @@ function assertReleaseNotes(rootDirectory, version, expectedImpact) {
   }
   const impactLines = nonEmptyLines(sections.get("Impact"));
   const impact = impactLines.length === 1 ? impactLines[0] : null;
-  if (!RELEASE_BUMP_IMPACTS.includes(impact)) {
+  if (!RELEASE_IMPACTS.includes(impact)) {
     throw new Error(
-      `Release notes Impact must be exactly major, minor, or patch: ${notesPath}`,
+      `Release notes Impact must be one of ${RELEASE_IMPACTS.join(", ")}: ${notesPath}`,
     );
   }
   if (expectedImpact !== undefined && impact !== expectedImpact) {
@@ -347,13 +348,49 @@ function assertLegacyReleaseNotes(rootDirectory, version) {
   return { notesPath, notes, impact: undefined, legacy: true };
 }
 
+function assertPublishableImpact(impact, notesPath) {
+  if (!RELEASE_BUMP_IMPACTS.includes(impact)) {
+    throw new Error(
+      `Release notes Impact (${impact}) is not publishable; expected major, minor, or patch: ${notesPath}`,
+    );
+  }
+}
+
+function structuredCommitMessage(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    return undefined;
+  for (const field of ["message", "commit", "raw"]) {
+    if (typeof input[field] === "string") return input[field];
+  }
+  if (typeof input.header !== "string") return undefined;
+  if (
+    (input.body !== undefined && typeof input.body !== "string") ||
+    (input.footer !== undefined && typeof input.footer !== "string")
+  ) {
+    return undefined;
+  }
+  return [input.header, input.body, input.footer]
+    .filter((part) => part !== undefined && part !== "")
+    .join("\n\n");
+}
+
+function flattenMessageInputs(inputs) {
+  return inputs.flatMap((input) => {
+    const messages = messagesFrom(input);
+    return messages.length > 0 ? messages : [input];
+  });
+}
+
 function messagesFrom(input) {
   if (typeof input === "string") return [input];
-  if (Array.isArray(input)) return input;
+  if (Array.isArray(input)) return flattenMessageInputs(input);
   if (input && typeof input === "object") {
-    if (typeof input.message === "string") return [input.message];
-    if (Array.isArray(input.messages)) return input.messages;
-    if (Array.isArray(input.commits)) return input.commits;
+    const structuredMessage = structuredCommitMessage(input);
+    if (structuredMessage !== undefined) return [structuredMessage];
+    if (Array.isArray(input.messages))
+      return flattenMessageInputs(input.messages);
+    if (Array.isArray(input.commits))
+      return flattenMessageInputs(input.commits);
   }
   return [];
 }
@@ -366,18 +403,20 @@ export function classifyCommitImpact(message) {
   const breakingMarkers = lines
     .slice(1)
     .map((line, index) => ({ line: line.trim(), index: index + 1 }))
-    .filter(({ line }) => /^BREAKING(?: |-)CHANGE\b/i.test(line));
+    .filter(({ line }) => BREAKING_MARKER.test(line));
   const footerStart = lines.findIndex(
     (line, index) => index > 0 && line.trim() === "",
   );
   const breakingFooter = breakingMarkers.find(
     ({ index }) => footerStart !== -1 && index > footerStart,
   );
+  const lastContentIndex = lines.findLastIndex((line) => line.trim() !== "");
   if (
     breakingMarkers.length > 0 &&
     (breakingMarkers.length !== 1 ||
       !breakingFooter ||
-      !BREAKING_FOOTER.test(breakingFooter.line))
+      !BREAKING_FOOTER.test(breakingFooter.line) ||
+      breakingFooter.index !== lastContentIndex)
   ) {
     return "unknown";
   }
@@ -470,6 +509,8 @@ export function validateRelease({
   const releaseNotes = legacyRequested
     ? assertLegacyReleaseNotes(root, LEGACY_RELEASE_VERSION)
     : assertReleaseNotes(root, releaseVersion, expectedImpact);
+  if (!releaseNotes.legacy)
+    assertPublishableImpact(releaseNotes.impact, releaseNotes.notesPath);
   return {
     version: metadata.version,
     manifestId: metadata.manifest.id,
