@@ -30,6 +30,10 @@ jobs:
             echo "Release must run only for an X.Y.Z semver tag; received: $GITHUB_REF_NAME" >&2
             exit 1
           fi
+          if [[ "$GITHUB_REF_NAME" == "0.2.7" ]]; then
+            echo "The historical 0.2.7 release is not eligible for workflow publication" >&2
+            exit 1
+          fi
 
       - name: Check out tag
         uses: actions/checkout@v4
@@ -42,7 +46,17 @@ jobs:
           set -euo pipefail
           test "$(git remote get-url origin)" = "https://github.com/$GITHUB_REPOSITORY.git"
           test -z "$(git status --porcelain --untracked-files=all)"
-          test "$(git rev-parse HEAD)" = "$(git rev-parse refs/tags/$GITHUB_REF_NAME)"
+          tag_ref="refs/tags/$GITHUB_REF_NAME"
+          checked_out_target="$(git rev-parse --verify "$tag_ref^{}")"
+          test "$checked_out_target" = "$(git rev-parse --verify HEAD^{commit})"
+
+          remote_refs="$(git ls-remote --exit-code origin "$tag_ref" "$tag_ref^{}")"
+          remote_target="$(awk -v ref="$tag_ref^{}" '$2 == ref { print $1; exit }' <<<"$remote_refs")"
+          if [[ -z "$remote_target" ]]; then
+            remote_target="$(awk -v ref="$tag_ref" '$2 == ref { print $1; exit }' <<<"$remote_refs")"
+          fi
+          test -n "$remote_target"
+          test "$remote_target" = "$checked_out_target"
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -82,9 +96,8 @@ jobs:
       - name: Validate release assets and metadata
         shell: bash
         run: |
-          legacy_flag=()
-          if [[ "$GITHUB_REF_NAME" == "0.2.7" ]]; then legacy_flag=(--allow-legacy); fi
-          corepack pnpm run release:validate -- "$GITHUB_REF_NAME" "${legacy_flag[@]}"
+          set -euo pipefail
+          corepack pnpm run release:validate -- "$GITHUB_REF_NAME"
 
       - name: Package BRAT ZIP
         shell: bash
@@ -92,9 +105,7 @@ jobs:
           ZIP_PATH: artifacts/obsidian-location-${{ github.ref_name }}.zip
         run: |
           set -euo pipefail
-          legacy_flag=()
-          if [[ "$GITHUB_REF_NAME" == "0.2.7" ]]; then legacy_flag=(--allow-legacy); fi
-          corepack pnpm run release:package -- "$GITHUB_REF_NAME" "$ZIP_PATH" "${legacy_flag[@]}"
+          corepack pnpm run release:package -- "$GITHUB_REF_NAME" "$ZIP_PATH"
           test -s "$ZIP_PATH"
 
           mapfile -t zip_entries < <(unzip -Z1 "$ZIP_PATH")
@@ -118,26 +129,33 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" "${release_assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --notes-file "$RELEASE_NOTES_PATH" \
-              --title "$GITHUB_REF_NAME"
+              --title "$GITHUB_REF_NAME" \
+              --draft=false \
+              --prerelease=false
           else
             gh release create "$GITHUB_REF_NAME" "${release_assets[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --notes-file "$RELEASE_NOTES_PATH" \
-              --title "$GITHUB_REF_NAME"
+              --title "$GITHUB_REF_NAME" \
+              --draft=false \
+              --prerelease=false
           fi
 
       - name: Verify published GitHub Release
         shell: bash
         env:
+          ZIP_PATH: artifacts/obsidian-location-${{ github.ref_name }}.zip
           RELEASE_NOTES_PATH: docs/releases/${{ github.ref_name }}.md
           RELEASE_JSON: release-verification.json
         run: |
           set -euo pipefail
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,body,assets > "$RELEASE_JSON"
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,body,assets,isDraft,isPrerelease > "$RELEASE_JSON"
 
           test "$(jq -r '.tagName' "$RELEASE_JSON")" = "$GITHUB_REF_NAME"
           test "$(jq -r '.body' "$RELEASE_JSON")" = "$(<"$RELEASE_NOTES_PATH")"
+          test "$(jq -r '.isDraft' "$RELEASE_JSON")" = "false"
+          test "$(jq -r '.isPrerelease' "$RELEASE_JSON")" = "false"
 
           mapfile -t release_asset_names < <(jq -r '.assets[].name' "$RELEASE_JSON")
           expected_release_assets=(main.js manifest.json styles.css "obsidian-location-${GITHUB_REF_NAME}.zip")
@@ -158,7 +176,10 @@ jobs:
           gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --pattern 'main.js' --pattern 'manifest.json' --pattern 'styles.css' \
             --pattern "obsidian-location-${GITHUB_REF_NAME}.zip" --dir "$DOWNLOAD_DIR" --clobber
-          for asset in "${expected_release_assets[@]}"; do
+          for asset in main.js manifest.json styles.css; do
             test "$(sha256sum "$asset" | awk '{print $1}')" = \
               "$(sha256sum "$DOWNLOAD_DIR/$asset" | awk '{print $1}')"
           done
+          zip_name="$(basename "$ZIP_PATH")"
+          test "$(sha256sum "$ZIP_PATH" | awk '{print $1}')" = \
+            "$(sha256sum "$DOWNLOAD_DIR/$zip_name" | awk '{print $1}')"

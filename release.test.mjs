@@ -23,7 +23,11 @@ function validReleaseNotes(version, impact = "patch") {
   const majorSections = impact === "major"
     ? "\n## Breaking changes\n\n- Removed the previous location format.\n\n## Migration\n\n- Migrate existing notes before upgrading.\n"
     : "";
-  return `# Release ${version}\n\nDate: 2026-08-31\n\n## Summary\n\nThis release contains a concrete user-visible result.\n\n## Impact\n\n${impact}\n\n## Rationale\n\nThe selected impact follows the compatibility evidence.\n\n## Fixed\n\n- Corrected a user-visible release behavior.${majorSections}`;
+  return `# Release ${version}\n\nDate: 2026-08-31\n\n## Summary\n\nThis release contains a concrete user-visible result.\n\n## Impact\n\n${impact}\n\n## Rationale\n\nThe selected impact follows the compatibility evidence.\n\n## User-visible changes\n\n- Corrected a user-visible release behavior.${majorSections}`;
+}
+
+function inlineReleaseNotes(version, impact = "patch") {
+  return `# Release ${version}\n\nDate: 2026-08-31\n\nImpact: ${impact}\nRationale: The selected impact follows the compatibility evidence.\nSummary: This release contains a concrete user-visible result.\nUser-visible changes:\n\n- Corrected a user-visible release behavior.\n`;
 }
 
 function createFixture({
@@ -76,7 +80,7 @@ function readReleaseTriggerPatterns() {
     "utf8",
   );
   const triggerBlock = workflow.match(
-    /\x20{4}tags:\n((?:\x20{6}- "[^"\n]+"\n?)+)/,
+    /\x20{4}tags:\n([\s\S]*?)(?:\n\n|$)/,
   )?.[1];
 
   if (!triggerBlock) {
@@ -119,7 +123,7 @@ describe("release validation", () => {
 
     expect(matchesReleaseTrigger("v0.2.2", triggerPatterns)).toBe(true);
     expect(matchesReleaseTrigger("0.2", triggerPatterns)).toBe(true);
-    const rootDirectory = createFixture({ packageVersion: "01.2.3" });
+    const rootDirectory = createFixture();
     expect(() =>
       validateRelease({ rootDirectory, expectedVersion: "01.2.3" }),
     ).toThrow("Expected release version is not an X.Y.Z semver");
@@ -138,6 +142,7 @@ describe("release validation", () => {
     expect(workflow).toContain(
       '"$GITHUB_REF_NAME" =~ ^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$',
     );
+    expect(workflow).toContain('"$GITHUB_REF_NAME" == "0.2.7"');
   });
 
   it.each([
@@ -208,6 +213,24 @@ describe("release validation", () => {
     }).legacy).toBe(true);
   });
 
+  it("accepts the canonical inline release-note fields", () => {
+    const rootDirectory = createFixture({ releaseNotes: inlineReleaseNotes("1.2.3") });
+
+    const result = validateRelease({ rootDirectory, expectedVersion: "1.2.3" });
+    expect(result).toMatchObject({ impact: "patch" });
+    expect(result.legacy).toBeUndefined();
+  });
+
+  it("does not allow legacy-note compatibility for another version", () => {
+    const rootDirectory = createFixture();
+
+    expect(() => validateRelease({
+      rootDirectory,
+      expectedVersion: "1.2.3",
+      allowLegacyNotes: true,
+    })).toThrow("supported only for 0.2.7");
+  });
+
   it("accepts the BRAT release contract for a tag version", () => {
     const rootDirectory = createFixture();
 
@@ -265,7 +288,7 @@ describe("release validation", () => {
     ],
     [
       "missing change",
-      validReleaseNotes("1.2.3").replace("## Fixed\n\n- Corrected a user-visible release behavior.", ""),
+      validReleaseNotes("1.2.3").replace("- Corrected a user-visible release behavior.", "No concrete user-visible bullet."),
       "concrete change",
     ],
     [
@@ -324,7 +347,7 @@ describe("release validation", () => {
   it("accepts User-visible changes as the concrete change section", () => {
     const rootDirectory = createFixture({
       releaseNotes: validReleaseNotes("1.2.3").replace(
-        "## Fixed\n\n- Corrected a user-visible release behavior.",
+        "## User-visible changes\n\n- Corrected a user-visible release behavior.",
         "## User-visible changes\n\n- Added a visible location suggestion command.",
       ),
     });
@@ -335,7 +358,7 @@ describe("release validation", () => {
   it("rejects breaking changes sections for non-major notes", () => {
     const rootDirectory = createFixture({
       releaseNotes: validReleaseNotes("1.2.3")
-        .replace("## Fixed", "## Breaking changes\n\n- Removed the old location format.\n\n## Fixed"),
+        .replace("## User-visible changes", "## Breaking changes\n\n- Removed the old location format.\n\n## User-visible changes"),
     });
 
     expect(() => validateRelease({ rootDirectory, expectedVersion: "1.2.3" }))
@@ -388,12 +411,19 @@ describe("release validation", () => {
     );
     expect(workflow).toContain("--verify-tag");
     expect(workflow).toContain(
-      'gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,body,assets',
+      'gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,body,assets,isDraft,isPrerelease',
     );
     expect(workflow).toContain(
       'mapfile -t release_asset_names < <(jq -r \'.assets[].name\' "$RELEASE_JSON")',
     );
     expect(workflow).toContain('jq -r \'.tagName\' "$RELEASE_JSON"');
     expect(workflow).toContain('jq -r \'.body\' "$RELEASE_JSON"');
+    expect(workflow).toContain("jq -r '.isDraft' \"$RELEASE_JSON\"");
+    expect(workflow).toContain("jq -r '.isPrerelease' \"$RELEASE_JSON\"");
+    expect(workflow).toContain('git ls-remote --exit-code origin "$tag_ref" "$tag_ref^{}"');
+    expect(workflow).toContain('git rev-parse --verify "$tag_ref^{}"');
+    expect(workflow).not.toContain("--allow-legacy");
+    expect(workflow).toContain('sha256sum "$ZIP_PATH"');
+    expect(workflow).toContain('sha256sum "$DOWNLOAD_DIR/$zip_name"');
   });
 });
