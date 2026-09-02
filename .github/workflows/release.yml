@@ -114,6 +114,19 @@ jobs:
         shell: bash
         run: corepack pnpm run build
 
+      - name: Verify tracked bundle provenance after build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-files --error-unmatch -- main.js)" = "main.js"
+          test -s main.js
+          test "$(git hash-object -- main.js)" = "$(git rev-parse HEAD:main.js)"
+          git diff --exit-code -- main.js
+          if [[ -e styles.css ]]; then
+            test -f styles.css
+            test -s styles.css
+          fi
+
       - name: Validate release assets and metadata
         shell: bash
         run: |

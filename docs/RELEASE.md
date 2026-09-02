@@ -124,9 +124,13 @@ the note.
 `.github/workflows/release.yml` is the only publication stage. Its glob tag
 filters are followed by a shell guard that accepts only an exact bare
 `X.Y.Z` tag (no `v` prefix or suffix). It checks out that tag, installs with
-the frozen lockfile, runs typecheck/tests/lint/build, validates the manifest,
-version map, authored notes, and root assets, creates and checks the
+the frozen lockfile, runs typecheck/tests/lint/build, verifies that the tracked
+`main.js` remains byte-identical to the tag after the build, validates the
+manifest, version map, authored notes, and root assets, creates and checks the
 root-layout ZIP, and creates or updates the GitHub Release with `GITHUB_TOKEN`.
+The post-build provenance check does not assume an optional `styles.css` exists;
+when it does, the workflow requires it to be a non-empty regular file before
+publication.
 The Release body is always read from the tagged
 `docs/releases/<X.Y.Z>.md` file; generated notes are not used. A final workflow
 step verifies the published tag name, authored body, exact asset names, and

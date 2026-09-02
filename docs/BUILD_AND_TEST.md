@@ -37,7 +37,9 @@ corepack pnpm run build
 `typecheck` uses the repository's strict TypeScript configuration. `test` runs
 Vitest once with the local Obsidian test double. `lint` covers source, test,
 configuration, and release scripts. `build` is the production minified bundle
-that Obsidian loads.
+that Obsidian loads. The release workflow also requires the tracked root
+`main.js` to remain byte-identical to the checked-out tag after this build; an
+optional root `styles.css`, when present, must be a non-empty regular file.
 
 After a production build, verify the release boundary:
 

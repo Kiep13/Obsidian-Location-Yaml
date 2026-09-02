@@ -61,6 +61,8 @@ function createFixture({
   manifestId = "obsidian-location",
   manifestVersion = packageVersion,
   emptyAsset,
+  missingAsset,
+  versions,
   releaseNotes = validReleaseNotes(packageVersion),
 } = {}) {
   const rootDirectory = mkdtempSync(
@@ -81,9 +83,10 @@ function createFixture({
   );
   writeFileSync(
     join(rootDirectory, "versions.json"),
-    JSON.stringify({ [packageVersion]: "1.5.0" }),
+    JSON.stringify(versions ?? { [packageVersion]: "1.5.0" }),
   );
   for (const asset of ["main.js", "styles.css"]) {
+    if (asset === missingAsset) continue;
     writeFileSync(
       join(rootDirectory, asset),
       asset === emptyAsset ? "" : asset,
@@ -547,12 +550,57 @@ describe("release validation", () => {
     ).toThrow("manifest.json id must be obsidian-location");
   });
 
-  it("rejects an empty release asset", () => {
+  it.each([
+    ["empty", { emptyAsset: "main.js" }],
+    ["missing", { missingAsset: "main.js" }],
+  ])("rejects a %s main.js release asset", (_name, fixtureOptions) => {
+    const rootDirectory = createFixture(fixtureOptions);
+
+    expect(() =>
+      validateRelease({ rootDirectory, expectedVersion: "1.2.3" }),
+    ).toThrow("Release asset is missing or empty");
+  });
+
+  it("rejects an empty optional styles.css asset when it is present", () => {
     const rootDirectory = createFixture({ emptyAsset: "styles.css" });
 
     expect(() =>
       validateRelease({ rootDirectory, expectedVersion: "1.2.3" }),
     ).toThrow("Release asset is missing or empty");
+  });
+
+  it("omits a missing styles.css asset when styles are optional", () => {
+    const rootDirectory = createFixture({ missingAsset: "styles.css" });
+
+    expect(
+      validateRelease({
+        rootDirectory,
+        expectedVersion: "1.2.3",
+        stylesPolicy: "optional",
+      }).assetNames,
+    ).toEqual(["main.js", "manifest.json"]);
+  });
+
+  it("rejects package and manifest version mismatches", () => {
+    const rootDirectory = createFixture({ manifestVersion: "1.2.4" });
+
+    expect(() =>
+      validateRelease({ rootDirectory, expectedVersion: "1.2.3" }),
+    ).toThrow(
+      "manifest.json version (1.2.4) does not match package.json version (1.2.3)",
+    );
+  });
+
+  it("rejects a versions.json entry with the wrong minimum app version", () => {
+    const rootDirectory = createFixture({
+      versions: { "1.2.3": "1.5.1" },
+    });
+
+    expect(() =>
+      validateRelease({ rootDirectory, expectedVersion: "1.2.3" }),
+    ).toThrow(
+      "versions.json entry for 1.2.3 must match manifest.json minAppVersion",
+    );
   });
 
   it("rejects a release tag that does not match the manifest version", () => {
@@ -613,5 +661,26 @@ describe("release validation", () => {
     expect(workflow).not.toContain("--allow-legacy");
     expect(workflow).toContain('sha256sum "$ZIP_PATH"');
     expect(workflow).toContain('sha256sum "$DOWNLOAD_DIR/$zip_name"');
+  });
+
+  it("requires the build to preserve the tracked main.js bundle", () => {
+    const workflow = readFileSync(
+      new URL("./.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+    const buildPosition = workflow.indexOf("- name: Production build");
+    const provenancePosition = workflow.indexOf(
+      "- name: Verify tracked bundle provenance after build",
+    );
+
+    expect(buildPosition).toBeGreaterThanOrEqual(0);
+    expect(provenancePosition).toBeGreaterThan(buildPosition);
+    const provenance = workflow.slice(provenancePosition);
+    expect(provenance).toContain(
+      'test "$(git ls-files --error-unmatch -- main.js)" = "main.js"',
+    );
+    expect(provenance).toContain('git diff --exit-code -- main.js');
+    expect(provenance).toContain('if [[ -e styles.css ]]; then');
+    expect(provenance).toContain('test -s styles.css');
   });
 });
