@@ -176,6 +176,11 @@ publishes anything. Only the explicitly named GitHub Actions stage runs
 `gh release create`/`edit` and uploads the assets after an exact bare version
 tag is pushed.
 
+After a production build, `node release.mjs provenance` performs a read-only
+provenance check: required tracked `main.js` and any tracked optional
+`styles.css` must remain byte-identical to `HEAD`. A non-empty file is not
+enough to establish that the build preserved the tagged bundle.
+
 The already-published `0.2.7` notes predate the current required fields. To
 validate or package that tag without editing its historical note, pass the
 explicit opt-in flag `--allow-legacy`; the flag is restricted to `0.2.7`.

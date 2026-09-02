@@ -113,6 +113,11 @@ plugin metadata, version map, authored notes, and all required non-empty root
 assets. `release:package` repeats validation and creates a local ZIP whose
 only root entries are `main.js`, `manifest.json`, and `styles.css`; it does not
 commit, tag, push, create/update a Release, or upload assets.
+After a production build, the read-only `node release.mjs provenance` command
+requires tracked `main.js` and compares its content with `HEAD`; it also makes
+the same comparison for tracked optional `styles.css`. This proves that the
+generated files shipped from the checked-out tag were not changed by the build,
+rather than only proving that they are non-empty.
 
 The existing `0.2.7` note is a historical exception and intentionally has no
 `Impact` or `Rationale` fields. Validate or package it only with the explicit
@@ -124,13 +129,14 @@ the note.
 `.github/workflows/release.yml` is the only publication stage. Its glob tag
 filters are followed by a shell guard that accepts only an exact bare
 `X.Y.Z` tag (no `v` prefix or suffix). It checks out that tag, installs with
-the frozen lockfile, runs typecheck/tests/lint/build, verifies that the tracked
-`main.js` remains byte-identical to the tag after the build, validates the
-manifest, version map, authored notes, and root assets, creates and checks the
-root-layout ZIP, and creates or updates the GitHub Release with `GITHUB_TOKEN`.
-The post-build provenance check does not assume an optional `styles.css` exists;
-when it does, the workflow requires it to be a non-empty regular file before
-publication.
+the frozen lockfile, runs typecheck/tests/lint/build, runs the read-only
+`node release.mjs provenance` check to verify that tracked `main.js` and any
+tracked optional `styles.css` remain byte-identical to the checked-out tag,
+validates the manifest, version map, authored notes, and root assets, creates
+and checks the root-layout ZIP, and creates or updates the GitHub Release with
+`GITHUB_TOKEN`. The provenance check also requires `main.js` to be a tracked,
+non-empty regular file and checks a tracked optional stylesheet when present;
+it does not treat size alone as provenance evidence.
 The Release body is always read from the tagged
 `docs/releases/<X.Y.Z>.md` file; generated notes are not used. A final workflow
 step verifies the published tag name, authored body, exact asset names, and

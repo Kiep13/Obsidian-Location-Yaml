@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url";
 
 export const RELEASE_REQUIRED_ASSETS = ["main.js", "manifest.json"];
 export const RELEASE_ASSETS = [...RELEASE_REQUIRED_ASSETS, "styles.css"];
+export const RELEASE_PROVENANCE_REQUIRED_ASSETS = ["main.js"];
+export const RELEASE_PROVENANCE_OPTIONAL_ASSETS = ["styles.css"];
 export const RELEASE_MANIFEST_ID = "obsidian-location";
 export const RELEASE_NOTES_DIRECTORY = join("docs", "releases");
 export const RELEASE_IMPACTS = ["major", "minor", "patch", "none", "unknown"];
@@ -486,6 +488,69 @@ function gitStatus(rootDirectory) {
   );
 }
 
+function isTracked(rootDirectory, relativePath) {
+  try {
+    return (
+      execFileSync("git", ["ls-files", "--error-unmatch", "--", relativePath], {
+        cwd: rootDirectory,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim() === relativePath
+    );
+  } catch {
+    return false;
+  }
+}
+
+function assertTrackedBundleAsset(rootDirectory, relativePath) {
+  if (!isTracked(rootDirectory, relativePath)) {
+    throw new Error(`Required generated asset is not tracked: ${relativePath}`);
+  }
+  const assetPath = join(rootDirectory, relativePath);
+  assertNonEmptyFile(assetPath);
+  const workingTreeHash = execFileSync(
+    "git",
+    ["hash-object", "--", relativePath],
+    { cwd: rootDirectory, encoding: "utf8" },
+  ).trim();
+  const headHash = execFileSync("git", ["rev-parse", `HEAD:${relativePath}`], {
+    cwd: rootDirectory,
+    encoding: "utf8",
+  }).trim();
+  if (workingTreeHash !== headHash) {
+    throw new Error(
+      `Tracked release asset changed after build: ${relativePath}`,
+    );
+  }
+  try {
+    execFileSync("git", ["diff", "--exit-code", "HEAD", "--", relativePath], {
+      cwd: rootDirectory,
+      stdio: "ignore",
+    });
+  } catch {
+    throw new Error(
+      `Tracked release asset differs from the checked-out tag: ${relativePath}`,
+    );
+  }
+}
+
+export function verifyTrackedBundleProvenance({
+  rootDirectory = process.cwd(),
+} = {}) {
+  const root = resolve(rootDirectory);
+  for (const relativePath of RELEASE_PROVENANCE_REQUIRED_ASSETS) {
+    assertTrackedBundleAsset(root, relativePath);
+  }
+  const verifiedAssets = [...RELEASE_PROVENANCE_REQUIRED_ASSETS];
+  for (const relativePath of RELEASE_PROVENANCE_OPTIONAL_ASSETS) {
+    if (isTracked(root, relativePath)) {
+      assertTrackedBundleAsset(root, relativePath);
+      verifiedAssets.push(relativePath);
+    }
+  }
+  return { rootDirectory: root, assetNames: verifiedAssets };
+}
+
 function assertClean(rootDirectory) {
   if (gitStatus(rootDirectory).trim() !== "") {
     throw new Error("Release preparation requires a clean working tree");
@@ -669,6 +734,15 @@ function runCli() {
       throw new Error("prepare accepts impact only through --impact");
     console.log(
       `Release preparation complete -> ${prepareRelease({ impact: options.impact }).version}`,
+    );
+    return;
+  }
+  if (command === "provenance") {
+    if (positional.length)
+      throw new Error("provenance accepts no positional arguments");
+    const result = verifyTrackedBundleProvenance();
+    console.log(
+      `Tracked bundle provenance passed -> ${result.assetNames.join(", ")}`,
     );
     return;
   }

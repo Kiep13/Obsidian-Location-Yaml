@@ -17,6 +17,7 @@ import {
   nextVersion,
   packageRelease,
   validateRelease,
+  verifyTrackedBundleProvenance,
 } from "./release.mjs";
 
 const temporaryDirectories = [];
@@ -101,6 +102,30 @@ function createFixture({
     );
   }
   return rootDirectory;
+}
+
+function initializeGitFixture(
+  rootDirectory,
+  trackedAssets = ["main.js", "styles.css"],
+) {
+  execFileSync("git", ["init", "-q"], { cwd: rootDirectory });
+  execFileSync("git", ["add", "--", ...trackedAssets], {
+    cwd: rootDirectory,
+  });
+  execFileSync(
+    "git",
+    [
+      "-c",
+      "user.name=Release fixture",
+      "-c",
+      "user.email=release-fixture@example.com",
+      "commit",
+      "-q",
+      "-m",
+      "fixture",
+    ],
+    { cwd: rootDirectory },
+  );
 }
 
 function readReleaseTriggerPatterns() {
@@ -663,7 +688,7 @@ describe("release validation", () => {
     expect(workflow).toContain('sha256sum "$DOWNLOAD_DIR/$zip_name"');
   });
 
-  it("requires the build to preserve the tracked main.js bundle", () => {
+  it("runs tracked bundle provenance after the production build", () => {
     const workflow = readFileSync(
       new URL("./.github/workflows/release.yml", import.meta.url),
       "utf8",
@@ -676,11 +701,31 @@ describe("release validation", () => {
     expect(buildPosition).toBeGreaterThanOrEqual(0);
     expect(provenancePosition).toBeGreaterThan(buildPosition);
     const provenance = workflow.slice(provenancePosition);
-    expect(provenance).toContain(
-      'test "$(git ls-files --error-unmatch -- main.js)" = "main.js"',
+    expect(provenance).toContain("node release.mjs provenance");
+  });
+
+  it.each(["main.js", "styles.css"])(
+    "rejects a same-size tracked %s change after the production build",
+    (asset) => {
+      const rootDirectory = createFixture();
+      initializeGitFixture(rootDirectory);
+      writeFileSync(
+        join(rootDirectory, asset),
+        asset === "main.js" ? "changed" : "changed!!!",
+      );
+
+      expect(() => verifyTrackedBundleProvenance({ rootDirectory })).toThrow(
+        "Tracked release asset changed after build",
+      );
+    },
+  );
+
+  it("requires main.js to be tracked and allows an absent optional stylesheet", () => {
+    const rootDirectory = createFixture({ missingAsset: "styles.css" });
+    initializeGitFixture(rootDirectory, ["main.js"]);
+
+    expect(verifyTrackedBundleProvenance({ rootDirectory }).assetNames).toEqual(
+      ["main.js"],
     );
-    expect(provenance).toContain('git diff --exit-code -- main.js');
-    expect(provenance).toContain('if [[ -e styles.css ]]; then');
-    expect(provenance).toContain('test -s styles.css');
   });
 });
