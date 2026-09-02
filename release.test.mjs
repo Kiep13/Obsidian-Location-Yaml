@@ -30,7 +30,15 @@ function createFixture({
   );
   writeFileSync(
     join(rootDirectory, "manifest.json"),
-    JSON.stringify({ id: manifestId, version: manifestVersion }),
+    JSON.stringify({
+      id: manifestId,
+      version: manifestVersion,
+      minAppVersion: "1.5.0",
+    }),
+  );
+  writeFileSync(
+    join(rootDirectory, "versions.json"),
+    JSON.stringify({ [packageVersion]: "1.5.0" }),
   );
   for (const asset of ["main.js", "styles.css"]) {
     writeFileSync(

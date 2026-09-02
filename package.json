@@ -24,10 +24,13 @@
     "preversion": "corepack pnpm typecheck && corepack pnpm test && corepack pnpm lint && corepack pnpm build",
     "version": "node version-bump.mjs",
     "release": "node release.mjs package",
+    "release:classify": "node release.mjs classify",
+    "release:prepare": "node release.mjs prepare",
     "release:validate": "node release.mjs validate",
     "release:package": "node release.mjs package",
-    "release:patch": "corepack pnpm version patch && corepack pnpm run release:package",
-    "release:minor": "corepack pnpm version minor && corepack pnpm run release:package"
+    "release:patch": "node release.mjs prepare --impact patch",
+    "release:minor": "node release.mjs prepare --impact minor",
+    "release:major": "node release.mjs prepare --impact major"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
