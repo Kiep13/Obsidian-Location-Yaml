@@ -574,10 +574,10 @@ export function nextVersion(current, impact) {
   if (!RELEASE_BUMP_IMPACTS.includes(impact)) {
     throw new Error(`Release impact must be patch, minor, or major: ${impact}`);
   }
-  const [major, minor, patch] = current.split(".").map(Number);
-  if (impact === "major") return `${major + 1}.0.0`;
-  if (impact === "minor") return `${major}.${minor + 1}.0`;
-  return `${major}.${minor}.${patch + 1}`;
+  const [major, minor, patch] = current.split(".").map(BigInt);
+  if (impact === "major") return `${major + 1n}.0.0`;
+  if (impact === "minor") return `${major}.${minor + 1n}.0`;
+  return `${major}.${minor}.${patch + 1n}`;
 }
 
 function runChecks(rootDirectory) {

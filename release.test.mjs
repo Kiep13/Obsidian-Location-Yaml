@@ -290,6 +290,19 @@ describe("release validation", () => {
     );
   });
 
+  it("increments arbitrarily large semver components without precision loss", () => {
+    const current =
+      "9007199254740992.9007199254740992.9007199254740992";
+
+    expect(nextVersion(current, "major")).toBe("9007199254740993.0.0");
+    expect(nextVersion(current, "minor")).toBe(
+      "9007199254740992.9007199254740993.0",
+    );
+    expect(nextVersion(current, "patch")).toBe(
+      "9007199254740992.9007199254740992.9007199254740993",
+    );
+  });
+
   it("requires an explicit legacy flag for the existing 0.2.7 notes", () => {
     const rootDirectory = createFixture({
       packageVersion: "0.2.7",
