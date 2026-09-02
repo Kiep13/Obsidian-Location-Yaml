@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { App } from 'obsidian';
 import { LocationAssignModal } from './LocationAssignModal';
 import type { LocationPromptContext, LocationPromptResult } from '../types';
@@ -178,7 +179,7 @@ describe('LocationAssignModal', () => {
     ]);
   });
 
-  it('renders visible shortcut indices without changing suggestion text', () => {
+  it('exposes shortcut indices without changing suggestion text', () => {
     const suggestions = openWithFiveSuggestions();
 
     expect(suggestions.children.map((child: any) => child.textContent)).toEqual([
@@ -195,6 +196,24 @@ describe('LocationAssignModal', () => {
       '4',
       '5',
     ]);
+  });
+
+  it('shows plain shortcut badges only within the focused suggestion block without reflow', () => {
+    const styles = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
+    const badgeRule = /\.location-modal-suggestion::after\s*\{([\s\S]*?)\}/.exec(styles)?.[1] ?? '';
+    const focusedBadgeRule = /\.location-modal-suggestions:focus-within \.location-modal-suggestion::after\s*\{([\s\S]*?)\}/.exec(styles)?.[1] ?? '';
+
+    expect(badgeRule).toMatch(/position:\s*absolute/);
+    expect(badgeRule).toMatch(/content:\s*attr\(data-shortcut\)/);
+    expect(badgeRule).toMatch(/opacity:\s*0/);
+    expect(badgeRule).toMatch(/visibility:\s*hidden/);
+    expect(badgeRule).not.toMatch(/border\s*:/);
+    expect(badgeRule).not.toMatch(/background\s*:/);
+    expect(badgeRule).not.toMatch(/border-radius\s*:/);
+    expect(badgeRule).not.toMatch(/(?:^|\n)\s*min-width\s*:/);
+    expect(badgeRule).not.toMatch(/(?:^|\n)\s*height\s*:/);
+    expect(focusedBadgeRule).toMatch(/opacity:\s*1/);
+    expect(focusedBadgeRule).toMatch(/visibility:\s*visible/);
   });
 
   it('moves forward Tab from the input to the first visible suggestion', () => {
@@ -235,6 +254,27 @@ describe('LocationAssignModal', () => {
     expect(suggestions.hidden).toBe(true);
     expect(event.preventDefault).toHaveBeenCalled();
     expect(submitButton.focused).toBe(true);
+  });
+
+  it('restores the suggestion focus path after a no-results refilter', () => {
+    const suggestions = openWithFiveSuggestions();
+    const input = findFirstByTag(modal.contentEl, 'input');
+    const submitButton = findSubmitButton(modal.contentEl);
+
+    input.value = 'Not a known location';
+    input.dispatchEvent({ type: 'input' });
+    expect(suggestions.hidden).toBe(true);
+    dispatchKeydown(input, 'Tab');
+    expect(submitButton.focused).toBe(true);
+
+    input.value = 'Air';
+    input.dispatchEvent({ type: 'input' });
+    expect(suggestions.hidden).toBe(false);
+    expect(suggestions.children.map((child: any) => child.textContent)).toEqual(['Airport']);
+    expect(suggestions.children[0].tabIndex).toBe(0);
+
+    dispatchKeydown(input, 'Tab');
+    expect(suggestions.children[0].focused).toBe(true);
   });
 
   it('keeps suggestions arrow-focusable with a roving tabindex', () => {
@@ -286,12 +326,27 @@ describe('LocationAssignModal', () => {
     const ctrlEvent = dispatchKeydown(suggestions.children[0], '1', { ctrlKey: true });
     const metaEvent = dispatchKeydown(suggestions.children[0], '1', { metaKey: true });
     const altEvent = dispatchKeydown(suggestions.children[0], '1', { altKey: true });
+    const shiftEvent = dispatchKeydown(suggestions.children[0], '1', { shiftKey: true });
 
     expect(outOfRangeEvent.preventDefault).not.toHaveBeenCalled();
     expect(ctrlEvent.preventDefault).not.toHaveBeenCalled();
     expect(metaEvent.preventDefault).not.toHaveBeenCalled();
     expect(altEvent.preventDefault).not.toHaveBeenCalled();
+    expect(shiftEvent.preventDefault).not.toHaveBeenCalled();
     expect(resolveSelection).not.toHaveBeenCalled();
+  });
+
+  it('activates a suggestion once for a mouse press and click sequence', () => {
+    const suggestions = openWithFiveSuggestions();
+    const suggestion = suggestions.children[0];
+    const mousedownEvent = { type: 'mousedown', preventDefault: vi.fn() };
+
+    suggestion.dispatchEvent(mousedownEvent);
+    suggestion.dispatchEvent({ type: 'click', preventDefault: vi.fn() });
+
+    expect(mousedownEvent.preventDefault).toHaveBeenCalled();
+    expect(resolveSelection).toHaveBeenCalledTimes(1);
+    expect(resolveSelection).toHaveBeenCalledWith({ label: 'Cafe' });
   });
 
   it('does not intercept digits typed in the input', () => {

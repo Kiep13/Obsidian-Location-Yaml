@@ -101,7 +101,8 @@ export class LocationAssignModal extends Modal {
     }) as unknown as HTMLElement;
     this.suggestionsEl.hidden = true;
     this.suggestionsEl.setAttribute('aria-hidden', 'true');
-    this.suggestionsEl.setAttribute('role', 'listbox');
+    this.suggestionsEl.setAttribute('role', 'group');
+    this.suggestionsEl.setAttribute('aria-label', 'Location suggestions');
 
     const actionsEl = this.contentEl.createDiv({ cls: 'location-modal-actions' });
     Object.assign(actionsEl.style, {
@@ -126,7 +127,7 @@ export class LocationAssignModal extends Modal {
     });
 
     this.inputEl.addEventListener('input', () => {
-      this.renderSuggestions(this.inputEl.value, false);
+      this.renderSuggestions(this.inputEl.value);
     });
 
     this.inputEl.addEventListener('keydown', (event: KeyboardEvent) => {
@@ -158,7 +159,7 @@ export class LocationAssignModal extends Modal {
       }
     });
 
-    this.renderSuggestions(this.inputEl.value, true);
+    this.renderSuggestions(this.inputEl.value);
     this.inputEl.focus();
   }
 
@@ -190,7 +191,7 @@ export class LocationAssignModal extends Modal {
     });
   }
 
-  private renderSuggestions(rawQuery: string, preferExactMatch: boolean): void {
+  private renderSuggestions(rawQuery: string): void {
     const normalizedQuery = normalizeLocationLabel(rawQuery);
     this.filteredSuggestions = [...this.allSuggestions]
       .map((location) => ({
@@ -226,14 +227,8 @@ export class LocationAssignModal extends Modal {
           tabindex: index === 0 ? '0' : '-1',
         },
       }) as unknown as HTMLButtonElement;
-      suggestionEl.setAttribute('role', 'option');
-      suggestionEl.setAttribute(
-        'aria-selected',
-        preferExactMatch && normalizeLocationKey(location.label) === normalizeLocationKey(normalizedQuery) ? 'true' : 'false',
-      );
       suggestionEl.addEventListener('mousedown', (event: MouseEvent) => {
         event.preventDefault();
-        this.chooseLocation(location.label);
       });
       suggestionEl.addEventListener('click', () => {
         this.chooseLocation(location.label);
@@ -303,7 +298,7 @@ export class LocationAssignModal extends Modal {
   }
 
   private getShortcutIndex(event: KeyboardEvent): number | null {
-    if (event.ctrlKey || event.metaKey || event.altKey || !/^[1-5]$/.test(event.key)) {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || !/^[1-5]$/.test(event.key)) {
       return null;
     }
 

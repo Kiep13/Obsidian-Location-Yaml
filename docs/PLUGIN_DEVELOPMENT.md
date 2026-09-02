@@ -80,8 +80,9 @@ the default match when opened, recent locations for an empty field, and up to fi
 normalized substring matches as the user types. The list is rebuilt on each
 `input` event. `ArrowUp`/`ArrowDown`, `Enter`, `Escape`, and mouse selection must
 continue to work. Every visible suggestion has a `data-shortcut` value from `1`
-to `5`, rendered as an absolutely positioned CSS badge so it does not affect the
-button's layout or wrapping. Forward `Tab` from the input focuses the first
+to `5`, rendered as an absolutely positioned CSS badge shown only while the
+suggestion block contains focus, so it does not affect the button's layout or
+wrapping. Forward `Tab` from the input focuses the first
 visible suggestion, or `Submit` when the list is empty. Suggestions use roving
 `tabindex`: the active suggestion has `tabindex="0"`, all other visible
 suggestions have `tabindex="-1"`, and arrow navigation can focus every item.
