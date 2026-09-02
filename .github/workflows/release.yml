@@ -36,6 +36,14 @@ jobs:
         with:
           ref: ${{ github.ref }}
 
+      - name: Verify checkout provenance and cleanliness
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git remote get-url origin)" = "https://github.com/$GITHUB_REPOSITORY.git"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse refs/tags/$GITHUB_REF_NAME)"
+
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -73,7 +81,10 @@ jobs:
 
       - name: Validate release assets and metadata
         shell: bash
-        run: corepack pnpm run release:validate -- "$GITHUB_REF_NAME"
+        run: |
+          legacy_flag=()
+          if [[ "$GITHUB_REF_NAME" == "0.2.7" ]]; then legacy_flag=(--allow-legacy); fi
+          corepack pnpm run release:validate -- "$GITHUB_REF_NAME" "${legacy_flag[@]}"
 
       - name: Package BRAT ZIP
         shell: bash
@@ -81,12 +92,14 @@ jobs:
           ZIP_PATH: artifacts/obsidian-location-${{ github.ref_name }}.zip
         run: |
           set -euo pipefail
-          corepack pnpm run release:package -- "$GITHUB_REF_NAME" "$ZIP_PATH"
+          legacy_flag=()
+          if [[ "$GITHUB_REF_NAME" == "0.2.7" ]]; then legacy_flag=(--allow-legacy); fi
+          corepack pnpm run release:package -- "$GITHUB_REF_NAME" "$ZIP_PATH" "${legacy_flag[@]}"
           test -s "$ZIP_PATH"
 
           mapfile -t zip_entries < <(unzip -Z1 "$ZIP_PATH")
           expected_entries=(main.js manifest.json styles.css)
-          if [[ "${#zip_entries[@]}" -ne "${#expected_entries[@]}" ]] || [[ "${zip_entries[*]}" != "${expected_entries[*]}" ]]; then
+          if [[ "$(printf '%s\n' "${zip_entries[@]}" | sort)" != "$(printf '%s\n' "${expected_entries[@]}" | sort)" ]]; then
             printf 'Unexpected ZIP root layout:\n%s\n' "${zip_entries[*]}" >&2
             exit 1
           fi
@@ -128,7 +141,7 @@ jobs:
 
           mapfile -t release_asset_names < <(jq -r '.assets[].name' "$RELEASE_JSON")
           expected_release_assets=(main.js manifest.json styles.css "obsidian-location-${GITHUB_REF_NAME}.zip")
-          if [[ "${release_asset_names[*]}" != "${expected_release_assets[*]}" ]] || [[ "${#release_asset_names[@]}" -ne "${#expected_release_assets[@]}" ]]; then
+          if [[ "$(printf '%s\n' "${release_asset_names[@]}" | sort)" != "$(printf '%s\n' "${expected_release_assets[@]}" | sort)" ]]; then
             printf 'Unexpected published Release assets:\n%s\n' "${release_asset_names[*]}" >&2
             exit 1
           fi
@@ -139,4 +152,13 @@ jobs:
               echo "Published Release asset is missing or empty: $asset" >&2
               exit 1
             fi
+          done
+
+          DOWNLOAD_DIR="$(mktemp -d)"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'main.js' --pattern 'manifest.json' --pattern 'styles.css' \
+            --pattern "obsidian-location-${GITHUB_REF_NAME}.zip" --dir "$DOWNLOAD_DIR" --clobber
+          for asset in "${expected_release_assets[@]}"; do
+            test "$(sha256sum "$asset" | awk '{print $1}')" = \
+              "$(sha256sum "$DOWNLOAD_DIR/$asset" | awk '{print $1}')"
           done

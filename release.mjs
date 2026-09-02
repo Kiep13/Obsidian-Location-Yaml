@@ -15,12 +15,14 @@ export const RELEASE_REQUIRED_ASSETS = ["main.js", "manifest.json"];
 export const RELEASE_ASSETS = [...RELEASE_REQUIRED_ASSETS, "styles.css"];
 export const RELEASE_MANIFEST_ID = "obsidian-location";
 export const RELEASE_NOTES_DIRECTORY = join("docs", "releases");
-export const RELEASE_IMPACTS = ["patch", "minor", "major"];
+export const RELEASE_IMPACTS = ["major", "minor", "patch", "none", "unknown"];
+const RELEASE_BUMP_IMPACTS = ["patch", "minor", "major"];
+export const LEGACY_RELEASE_VERSION = "0.2.7";
 export const SEMVER_TAG_PATTERN =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 
 const NOTE_PLACEHOLDER = /^(?:user-visible (?:addition|behavior change|bug fix|change|changes)|documentation-only user-facing change|required only when applicable|update|todo)\.?$/iu;
-const COMMIT_HEADER = /^([a-z]+)(?:\([^\r\n()]+\))?(!)?:\s+\S/i;
+const COMMIT_HEADER = /^([a-z]+)(?:\([^\r\n()]+\))?(!)?: [^\s\r\n].*$/i;
 const BREAKING_FOOTER = /^BREAKING(?: |-)CHANGE\s*:\s*\S.*$/i;
 const COMMIT_IMPACTS = new Map([
   ["breaking", "major"],
@@ -55,6 +57,7 @@ const RELEASE_NOTE_CHANGE_SECTIONS = new Set([
   "Breaking changes",
   "Documentation",
 ]);
+const LEGACY_NOTE_CHANGE_SECTIONS = new Set(["Added", "Changed", "Fixed", "Documentation"]);
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -140,7 +143,7 @@ function assertReleaseNotes(rootDirectory, version, expectedImpact) {
   }
   const impactLines = nonEmptyLines(sections.get("Impact"));
   const impact = impactLines.length === 1 ? impactLines[0] : null;
-  if (!RELEASE_IMPACTS.includes(impact)) {
+  if (!RELEASE_BUMP_IMPACTS.includes(impact)) {
     throw new Error(
       `Release notes ## Impact must be exactly major, minor, or patch: ${notesPath}`,
     );
@@ -178,6 +181,30 @@ function assertReleaseNotes(rootDirectory, version, expectedImpact) {
     throw new Error(`Release notes must contain a concrete change: ${notesPath}`);
   }
   return { notesPath, notes, impact };
+}
+
+function assertLegacyReleaseNotes(rootDirectory, version) {
+  const notesPath = join(rootDirectory, RELEASE_NOTES_DIRECTORY, `${version}.md`);
+  assertNonEmptyFile(notesPath);
+  const notes = readFileSync(notesPath, "utf8");
+  if (notes.split(/\r?\n/).find((line) => line.length > 0) !== `# Release ${version}`) {
+    throw new Error(`Release notes heading must be # Release ${version}: ${notesPath}`);
+  }
+  const dateMatch = notes.match(/^Date: (\d{4}-\d{2}-\d{2})$/m);
+  const releaseDate = dateMatch ? new Date(`${dateMatch[1]}T00:00:00Z`) : null;
+  if (!dateMatch || !releaseDate || Number.isNaN(releaseDate.valueOf()) ||
+      releaseDate.toISOString().slice(0, 10) !== dateMatch[1]) {
+    throw new Error(`Release notes date is missing or invalid: ${notesPath}`);
+  }
+  const sections = noteSections(notes);
+  const concreteChange = [...LEGACY_NOTE_CHANGE_SECTIONS].some((section) =>
+    (sections.get(section) ?? []).some((line) => {
+      const text = line.match(/^\s*-\s+(.+?)\s*$/)?.[1];
+      return text !== undefined && text.length >= 9 && !NOTE_PLACEHOLDER.test(text);
+    }),
+  );
+  if (!concreteChange) throw new Error(`Release notes must contain a concrete change: ${notesPath}`);
+  return { notesPath, notes, impact: undefined, legacy: true };
 }
 
 function messagesFrom(input) {
@@ -266,6 +293,8 @@ export function validateRelease({
   expectedImpact,
   stylesPolicy = "required",
   requireStyles,
+  allowLegacyNotes = false,
+  allowLegacy = false,
 } = {}) {
   const root = resolve(rootDirectory);
   const metadata = validateMetadata(root);
@@ -285,13 +314,17 @@ export function validateRelease({
     assertNonEmptyFile(join(root, "styles.css"));
     assets.push("styles.css");
   }
+  const releaseNotes = (allowLegacyNotes || allowLegacy) &&
+    (expectedVersion ?? metadata.version) === LEGACY_RELEASE_VERSION
+    ? assertLegacyReleaseNotes(root, LEGACY_RELEASE_VERSION)
+    : assertReleaseNotes(root, expectedVersion ?? metadata.version, expectedImpact);
   return {
     version: metadata.version,
     manifestId: metadata.manifest.id,
     assetNames: assets,
     assetPaths: assets.map((asset) => join(root, asset)),
     stylesPolicy: mode,
-    ...assertReleaseNotes(root, expectedVersion ?? metadata.version, expectedImpact),
+    ...releaseNotes,
   };
 }
 
@@ -321,7 +354,7 @@ function assertKnownChanges(rootDirectory) {
 
 export function nextVersion(current, impact) {
   assertExactVersion(current, "package.json version");
-  if (!RELEASE_IMPACTS.includes(impact)) {
+  if (!RELEASE_BUMP_IMPACTS.includes(impact)) {
     throw new Error(`Release impact must be patch, minor, or major: ${impact}`);
   }
   const [major, minor, patch] = current.split(".").map(Number);
@@ -360,7 +393,7 @@ export function prepareRelease({
   runLocalChecks = true,
 } = {}) {
   const root = resolve(rootDirectory);
-  if (!RELEASE_IMPACTS.includes(impact)) {
+  if (!RELEASE_BUMP_IMPACTS.includes(impact)) {
     throw new Error(`Release preparation requires explicit --impact: ${impact ?? "missing"}`);
   }
   assertClean(root);
@@ -400,6 +433,8 @@ export function packageRelease({
   ),
   stylesPolicy = "required",
   requireStyles,
+  allowLegacyNotes = false,
+  allowLegacy = false,
 } = {}) {
   const root = resolve(rootDirectory);
   const metadata = validateRelease({
@@ -407,6 +442,8 @@ export function packageRelease({
     expectedVersion,
     stylesPolicy,
     requireStyles,
+    allowLegacyNotes,
+    allowLegacy,
   });
   const archivePath = resolve(root, outputPath);
   mkdirSync(dirname(archivePath), { recursive: true });
@@ -444,6 +481,7 @@ function cliArgs(args) {
     } else if (argument?.startsWith("--message=") || argument?.startsWith("--commit=")) {
       (options.messages ??= []).push(argument.slice(argument.indexOf("=") + 1));
     } else if (argument === "--styles-optional") options.stylesPolicy = "optional";
+    else if (argument === "--allow-legacy") options.allowLegacyNotes = true;
     else if (argument?.startsWith("-")) throw new Error(`Unknown release option: ${argument}`);
     else positional.push(argument);
   }
@@ -463,11 +501,11 @@ function runCli() {
   }
   const expectedVersion = positional[0];
   if (command === "validate") {
-    console.log(`Release validation passed for ${validateRelease({ expectedVersion, stylesPolicy: options.stylesPolicy }).version}`);
+    console.log(`Release validation passed for ${validateRelease({ expectedVersion, stylesPolicy: options.stylesPolicy, allowLegacyNotes: options.allowLegacyNotes }).version}`);
     return;
   }
   if (command === "package") {
-    console.log(`Release package created -> ${packageRelease({ expectedVersion, outputPath: positional[1], stylesPolicy: options.stylesPolicy }).archivePath}`);
+    console.log(`Release package created -> ${packageRelease({ expectedVersion, outputPath: positional[1], stylesPolicy: options.stylesPolicy, allowLegacyNotes: options.allowLegacyNotes }).archivePath}`);
     return;
   }
   throw new Error(`Unknown release command: ${command}. Use classify, prepare, validate, or package.`);

@@ -189,6 +189,23 @@ describe("release validation", () => {
     expect(nextVersion("1.2.3", "major")).toBe("2.0.0");
     expect(nextVersion("1.2.3", "minor")).toBe("1.3.0");
     expect(nextVersion("1.2.3", "patch")).toBe("1.2.4");
+    expect(() => nextVersion("1.2.3", "none")).toThrow("patch, minor, or major");
+    expect(() => nextVersion("1.2.3", "unknown")).toThrow("patch, minor, or major");
+  });
+
+  it("requires an explicit legacy flag for the existing 0.2.7 notes", () => {
+    const rootDirectory = createFixture({
+      packageVersion: "0.2.7",
+      releaseNotes: readFileSync(new URL("./docs/releases/0.2.7.md", import.meta.url), "utf8"),
+    });
+
+    expect(() => validateRelease({ rootDirectory, expectedVersion: "0.2.7" }))
+      .toThrow("must contain ## Impact");
+    expect(validateRelease({
+      rootDirectory,
+      expectedVersion: "0.2.7",
+      allowLegacyNotes: true,
+    }).legacy).toBe(true);
   });
 
   it("accepts the BRAT release contract for a tag version", () => {

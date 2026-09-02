@@ -139,6 +139,11 @@ assets. `release:package` repeats validation and creates a local ZIP whose
 only root entries are `main.js`, `manifest.json`, and `styles.css`; it does not
 commit, tag, push, create/update a Release, or upload assets.
 
+The existing `0.2.7` note is a historical exception and intentionally has no
+`Impact` or `Rationale` fields. Validate or package it only with the explicit
+`--allow-legacy` flag; the flag is accepted for `0.2.7` only and does not alter
+the note.
+
 ## GitHub Actions flow
 
 `.github/workflows/release.yml` is the only publication stage. Its glob tag

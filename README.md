@@ -174,3 +174,7 @@ performs the same checks and then creates a local ZIP containing exactly
 publishes anything. Only the explicitly named GitHub Actions stage runs
 `gh release create`/`edit` and uploads the assets after an exact bare version
 tag is pushed.
+
+The already-published `0.2.7` notes predate the current required fields. To
+validate or package that tag without editing its historical note, pass the
+explicit opt-in flag `--allow-legacy`; the flag is restricted to `0.2.7`.
