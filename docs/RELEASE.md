@@ -16,6 +16,28 @@ The automated workflow also attaches a ZIP containing exactly those files at the
 ZIP root. A Git tag existing on GitHub does not prove that the Release has the
 assets BRAT needs; verify both separately.
 
+## Impact policy
+
+Select one impact for the complete change before preparing a version:
+
+- `major` — an incompatible user-visible or data/configuration change;
+- `minor` — a backward-compatible user-visible capability;
+- `patch` — a backward-compatible correction;
+- `none` — tests, CI, internal changes, or documentation that do not change the
+  shipped plugin contract;
+- `unknown` — the evidence is insufficient. This blocks release preparation.
+
+For a mixed change, use the highest impact in this order:
+`unknown` > `major` > `minor` > `patch` > `none`. A `major`/`minor`/`patch`
+classification must describe the user-visible effect in the authored notes;
+`unknown` must be resolved explicitly before selecting a version. The
+`release:classify` command can classify Conventional Commit-style messages,
+but it does not change files or select a version for the maintainer:
+
+```bash
+corepack pnpm run release:classify -- --message "fix: refresh location usage"
+```
+
 ## Release notes
 
 Every published version must have a dedicated
@@ -61,18 +83,20 @@ release notes, and a generic body such as `update` is not sufficient.
 
 ## Local release preparation
 
-From a clean target branch, use the version helper for a patch or minor release:
+From a clean target branch, use the version helper for the selected impact:
 
 ```bash
 corepack pnpm run release:patch
-# or
 corepack pnpm run release:minor
+# or: corepack pnpm run release:minor
+# or: corepack pnpm run release:major
 ```
 
-The `preversion` hook runs typecheck, tests, lint, and a production build. The
-`version` hook updates `manifest.json` and `versions.json` from the new
-`package.json` version and stages the generated release files. The local helper
-does not push tags or publish a GitHub Release.
+Each helper requires an explicit impact, a clean working tree, and authored
+notes for the next version. It updates `package.json`, `manifest.json`, and
+`versions.json`, then runs typecheck, tests, lint, and the production build.
+The helper leaves those changes local for review. It does not commit, create a
+tag, push, create/update a GitHub Release, or upload assets.
 
 To validate or package an already selected version without publishing:
 
@@ -81,12 +105,22 @@ corepack pnpm run release:validate -- <X.Y.Z>
 corepack pnpm run release:package -- <X.Y.Z> artifacts/obsidian-location-<X.Y.Z>.zip
 ```
 
+`release:validate` is read-only: it checks the exact bare `X.Y.Z` version,
+plugin metadata, version map, authored notes, and all required non-empty root
+assets. `release:package` repeats validation and creates a local ZIP whose
+only root entries are `main.js`, `manifest.json`, and `styles.css`; it does not
+commit, tag, push, create/update a Release, or upload assets.
+
 ## GitHub Actions flow
 
-`.github/workflows/release.yml` runs for an exact semver tag without a `v`
-prefix. It checks out the tag, installs with the frozen lockfile, runs
-typecheck/tests/lint/build, validates the manifest and assets, creates the
+`.github/workflows/release.yml` is the only publication stage. Its glob tag
+filters are followed by a shell guard that accepts only an exact bare
+`X.Y.Z` tag (no `v` prefix or suffix). It checks out that tag, installs with
+the frozen lockfile, runs typecheck/tests/lint/build, validates the manifest,
+version map, authored notes, and root assets, creates and checks the
 root-layout ZIP, and creates or updates the GitHub Release with `GITHUB_TOKEN`.
+The Release body is always read from the tagged
+`docs/releases/<X.Y.Z>.md` file; generated notes are not used.
 
 Before pushing a tag, confirm:
 

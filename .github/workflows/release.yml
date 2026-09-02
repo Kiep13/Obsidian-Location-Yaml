@@ -3,6 +3,8 @@ name: Release
 on:
   push:
     tags:
+      # Actions tag filters are globs; the job-level guard below is the
+      # authoritative exact X.Y.Z/no-prefix check.
       - "0.[0-9]*.[0-9]*"
       - "[1-9]*.[0-9]*.[0-9]*"
 
@@ -21,11 +23,11 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      - name: Validate tag ref
+      - name: Validate exact bare tag ref
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF_TYPE" != "tag" || ! "$GITHUB_REF_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+          if [[ "$GITHUB_REF_TYPE" != "tag" || "$GITHUB_REF" != "refs/tags/$GITHUB_REF_NAME" || ! "$GITHUB_REF_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "Release must run only for an X.Y.Z semver tag; received: $GITHUB_REF_NAME" >&2
             exit 1
           fi

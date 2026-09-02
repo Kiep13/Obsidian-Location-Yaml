@@ -9,7 +9,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { URL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { validateRelease } from "./release.mjs";
+import {
+  classifyReleaseImpact,
+  packageRelease,
+  validateRelease,
+} from "./release.mjs";
 
 const temporaryDirectories = [];
 
@@ -115,6 +119,42 @@ describe("release validation", () => {
     ).toThrow("Expected release version is not an X.Y.Z semver");
   });
 
+  it("requires the workflow job to accept only an exact bare tag ref", () => {
+    const workflow = readFileSync(
+      new URL("./.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+
+    expect(workflow).toContain('"$GITHUB_REF_TYPE" != "tag"');
+    expect(workflow).toContain(
+      '"$GITHUB_REF" != "refs/tags/$GITHUB_REF_NAME"',
+    );
+    expect(workflow).toContain(
+      '"$GITHUB_REF_NAME" =~ ^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$',
+    );
+  });
+
+  it("classifies mixed changes by the highest impact and blocks unknown evidence", () => {
+    expect(
+      classifyReleaseImpact([
+        "docs: clarify the release process",
+        "fix: refresh location usage",
+      ]),
+    ).toBe("patch");
+    expect(classifyReleaseImpact(["feat: add a location command", "fix: typo"])).toBe(
+      "minor",
+    );
+    expect(classifyReleaseImpact(["feat!: remove the old location format"])).toBe(
+      "major",
+    );
+    expect(classifyReleaseImpact(["fix: refresh location usage", "ambiguous change"])).toBe(
+      "unknown",
+    );
+    expect(classifyReleaseImpact(["docs: clarify the release process", "test: add coverage"])).toBe(
+      "none",
+    );
+  });
+
   it("accepts the BRAT release contract for a tag version", () => {
     const rootDirectory = createFixture();
 
@@ -124,6 +164,19 @@ describe("release validation", () => {
       version: "1.2.3",
       manifestId: "obsidian-location",
     });
+  });
+
+  it("packages the current BRAT assets at the ZIP root", () => {
+    const rootDirectory = createFixture();
+
+    const result = packageRelease({
+      rootDirectory,
+      expectedVersion: "1.2.3",
+      outputPath: "artifacts/plugin.zip",
+    });
+
+    expect(result.assetNames).toEqual(["main.js", "manifest.json", "styles.css"]);
+    expect(result.entries).toEqual(result.assetNames);
   });
 
   it("requires version-specific release notes", () => {
@@ -197,5 +250,18 @@ describe("release validation", () => {
 
     expect(workflow).toContain('--notes-file "$RELEASE_NOTES_PATH"');
     expect(workflow).not.toContain("--generate-notes");
+    expect(workflow).toContain(
+      'corepack pnpm run release:validate -- "$GITHUB_REF_NAME"',
+    );
+    expect(workflow).toContain(
+      'corepack pnpm run release:package -- "$GITHUB_REF_NAME" "$ZIP_PATH"',
+    );
+    expect(workflow).toContain(
+      "expected_entries=(main.js manifest.json styles.css)",
+    );
+    expect(workflow).toContain(
+      "release_assets=(main.js manifest.json styles.css \"$ZIP_PATH\")",
+    );
+    expect(workflow).toContain("--verify-tag");
   });
 });

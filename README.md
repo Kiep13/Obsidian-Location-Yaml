@@ -117,16 +117,50 @@ version; for example:
 
 Version keys and release tags use semver without a `v` prefix.
 
-For a patch or minor release, run the corresponding command from the repository
-root to update the local version and build a validation package:
+Choose the impact before preparing a release. The policy is:
+
+- `major`: an incompatible user-visible or data/configuration change;
+- `minor`: a backward-compatible user-visible capability;
+- `patch`: a backward-compatible correction;
+- `none`: tests, CI, internal changes, or documentation that do not change the
+  shipped plugin contract;
+- `unknown`: insufficient evidence. Do not choose a version until the impact
+  is explicitly resolved.
+
+For mixed changes, the highest applicable impact wins; `unknown` is a blocker.
+The classifier accepts Conventional Commit-style messages and is advisory—the
+maintainer still supplies the selected impact explicitly:
+
+```bash
+corepack pnpm run release:classify -- --message "fix: refresh location usage"
+```
+
+From a clean repository root, prepare the selected release locally:
 
 ```bash
 corepack pnpm run release:patch
 corepack pnpm run release:minor
+corepack pnpm run release:major
 ```
 
-Each command runs typecheck, tests, lint, and the production build before
-bumping the version. The version hook updates `manifest.json` and
-`versions.json`. The local `release:validate` and `release:package` scripts do
-not push or publish anything; GitHub Actions creates or updates the Release
-when an `X.Y.Z` tag is pushed.
+These commands require the matching `docs/releases/<X.Y.Z>.md` file, update
+`package.json`, `manifest.json`, and `versions.json`, and run typecheck, tests,
+lint, and the production build. They leave the changes in the working tree for
+review; they do not commit, create tags, push, create/update GitHub Releases,
+or upload assets.
+
+The lower-level commands are also local-only:
+
+```bash
+corepack pnpm run release:prepare -- --impact patch
+corepack pnpm run release:validate -- <X.Y.Z>
+corepack pnpm run release:package -- <X.Y.Z> artifacts/obsidian-location-<X.Y.Z>.zip
+```
+
+`release:validate` performs read-only checks of the exact bare `X.Y.Z` version,
+metadata, authored notes, and non-empty root assets. `release:package` first
+performs the same checks and then creates a local ZIP containing exactly
+`main.js`, `manifest.json`, and `styles.css` at its root. Neither command
+publishes anything. Only the explicitly named GitHub Actions stage runs
+`gh release create`/`edit` and uploads the assets after an exact bare version
+tag is pushed.
